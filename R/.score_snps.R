@@ -45,8 +45,8 @@
     }
   }
 
-  # Finalize: mean over contributing trees
-  scores        <- numeric(n)
+  # Finalize: mean over contributing trees; SNPs with no leaf evidence are NA
+  scores        <- rep(NA_real_, n)
   has_s         <- used_llrs > 0L
   scores[has_s] <- llrs_sum[has_s] / used_llrs[has_s]
 
