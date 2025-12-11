@@ -9,7 +9,6 @@
 #' @keywords internal
 #'
 #' @examples
-
 .build_rule_strings <- function(leaf_paths,
                                 bin_spec,
                                 max_depth = NULL,
@@ -41,6 +40,9 @@
 
   LS <- LS[depth < as.integer(max_depth)]
   data.table::setorder(LS, Tree, leaf_id, depth)
+
+  # Helper for consistent formatting of threshold values
+  .format_num <- function(x) formatC(as.numeric(x), format = "e", digits = 2)
 
   if (isTRUE(tighten_monotone)) {
     eps <- 1e-12
