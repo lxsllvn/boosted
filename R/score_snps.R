@@ -10,10 +10,10 @@
 #'
 #' @examples
 
-.score_snps <- function(test_leaf_map,
-                        leaf_llrs_by_tree,
-                        Tm,
-                        n) {
+.score_snps_r <- function(test_leaf_map,
+                          leaf_llrs_by_tree,
+                          Tm,
+                          n) {
   # Initialize accumulators
   llrs_sum  <- numeric(n)
   used_llrs <- integer(n)
@@ -51,4 +51,23 @@
   scores[has_s] <- llrs_sum[has_s] / used_llrs[has_s]
 
   list(scores = scores)
+}
+
+#' Internal dispatcher for score_snps
+#' @keywords internal
+.score_snps <- function(test_leaf_map,
+                        leaf_llrs_by_tree,
+                        Tm,
+                        n, use_rcpp = TRUE) {
+  if (use_rcpp && exists(".score_snps_rcpp", mode = "function", inherits = TRUE)) {
+    .score_snps_rcpp(test_leaf_map,
+                     leaf_llrs_by_tree,
+                     Tm,
+                     n)
+  } else {
+    .score_snps_R(test_leaf_map,
+                  leaf_llrs_by_tree,
+                  Tm,
+                  n)
+  }
 }

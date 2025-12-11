@@ -9,6 +9,7 @@
 #'
 #' @return
 #' @export
+#' @import data.table
 #'
 #' @examples
 
@@ -59,7 +60,7 @@ validate_rules <- function(boosted,
   # Harvest metadata
   max_depth        <- harvest$max_depth
   tighten_monotone <- harvest$tighten_monotone
-  n_train          <- harvest$n_yvar_train
+  n_yvar_train     <- harvest$n_yvar_train
 
   # Decide which rules to validate
   if (is.null(candidate_rules)) {

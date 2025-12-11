@@ -15,13 +15,7 @@ set_snp_class(
 }
 \arguments{
 \item{scale}{}
-
-\item{y}{}
 }
 \description{
 Title
-}
-\examples{
-Title
-
 }

@@ -10,7 +10,7 @@
 #'
 #' @examples
 
-.snp_lookup <- function(pairs,
+.snp_lookup_R <- function(pairs,
                         snps_ext_by_leaf,
                         snps_bg_by_leaf,
                         snps_all_by_leaf = NULL) {
@@ -59,3 +59,25 @@
        bucket_bg  = bucket_bg,
        bucket_all = bucket_all)
 }
+
+#' Internal dispatcher for snp_lookup
+#' @keywords internal
+.snp_lookup <- function(pairs,
+                        snps_ext_by_leaf,
+                        snps_bg_by_leaf,
+                        snps_all_by_leaf = NULL,
+                        use_rcpp = TRUE) {
+  if (use_rcpp &&
+      exists(".snp_lookup_rcpp", mode = "function", inherits = TRUE)) {
+    .snp_lookup_rcpp(pairs,
+                     snps_ext_by_leaf,
+                     snps_bg_by_leaf,
+                     snps_all_by_leaf = NULL)
+  } else {
+    .snp_lookup_R(pairs,
+                  snps_ext_by_leaf,
+                  snps_bg_by_leaf,
+                  snps_all_by_leaf = NULL)
+  }
+}
+

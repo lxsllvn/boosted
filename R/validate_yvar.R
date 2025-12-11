@@ -1,14 +1,15 @@
-#' Title
+#' Check a y vector for compatibility with an xgboost model and return center and scale
 #'
-#' @param y
-#' @param features
-#' @param caller
+#' Checks if a y-variable vector is 1) numeric with finite center, 2) has finite and positive scale, and 3) is the length expected from the feature matrix. If valid, returns the mean, median, sd, and mad of the vector. Called by `make_boosted`.
+#'
+#' @param y vector of response values used either to train or test an xgboost model
+#' @param features matrix of feature data
+#' @param caller an optional string to customize error messages
 #'
 #' @return
 #' @keywords internal
 #'
 #' @examples
-
 .validate_yvar <- function(y,
                            features,
                            caller = ".validate_yvar") {

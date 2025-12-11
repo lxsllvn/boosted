@@ -13,7 +13,6 @@
 #' @export
 #'
 #' @examples
-
 harvest_rules <- function(boosted,
                           max_depth        = 5L,
                           min_support      = 20L,

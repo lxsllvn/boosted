@@ -11,7 +11,6 @@
 #' @export
 #'
 #' @examples
-
 set_snp_class <- function(yvar_train,
                           extreme_k,
                           lower_tail = FALSE,
@@ -53,15 +52,7 @@ set_snp_class <- function(yvar_train,
     extr_thr <- mu + extreme_k * sig
   }
 
-  # Construct fuction to create sets
-#' Title
-#'
-#' @param y
-#'
-#' @return
-#' @export
-#'
-#' @examples
+  # Construct function to create sets
   apply_fun <- function(y) {
     if (lower_tail) {
       extr_idx <- which(y <= extr_thr)

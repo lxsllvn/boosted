@@ -80,6 +80,9 @@ make_boosted <- function(model,
       format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     ))
   }
+  features_train <- as.matrix(features_train)
+  features_test  <- as.matrix(features_test)
+
   train_leaves <- predict(model, features_train, predleaf = TRUE)
   test_leaves  <- predict(model, features_test,  predleaf = TRUE)
   storage.mode(train_leaves) <- "integer"
