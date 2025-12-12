@@ -8,6 +8,7 @@
 #'
 #' @return
 #' @keywords internal
+#' @import data.table
 #'
 #' @examples
 .extract_leaf_paths <- function(native_leaf_ids,
@@ -20,90 +21,53 @@
   data.table::setkey(tdt, Tree, ID)
 
   build_raw_steps_batch <- function(batch_start, batch_end) {
-    # total_steps counts the total number of path steps across all leaves
-    # in this batch of trees. We use it to preallocate vectors.
-    total_steps <- 0L
+    # start with a modest capacity and grow as needed
+    capacity <- 100000L
 
-    # meta will store basic metadata per tree in this batch:
-    # tt = 1-based tree index
-    # tr = 0-based tree index (used by xgboost helpers)
-    # uleaf = vector of native leaf_ids for this tree
-    meta <- vector("list", batch_end - batch_start + 1L)
-    mi <- 1L
+    Tree_v  <- integer(capacity)
+    Leaf_v  <- integer(capacity)
+    Depth_v <- integer(capacity)
+    Feat_v  <- character(capacity)
+    Dir_v   <- character(capacity)
+    Split_v <- numeric(capacity)
+    cursor  <- 0L
 
-    # First pass over trees in the batch:
-    # - determine which leaves exist in each tree
-    # - count total path length across all leaves (sum of number of nodes
-    # along each leaf's path), so we know how big to make the output arrays.
+    # helper: ensure we have room for k more steps
+    ensure_capacity <- function(k) {
+      needed <- cursor + k
+      if (needed <= capacity)
+        return()
+
+      new_cap <- max(capacity * 2L, needed)
+
+      length(Tree_v)  <<- new_cap
+      length(Leaf_v)  <<- new_cap
+      length(Depth_v) <<- new_cap
+      length(Feat_v)  <<- new_cap
+      length(Dir_v)   <<- new_cap
+      length(Split_v) <<- new_cap
+
+      capacity <<- new_cap
+    }
+
+    # single pass over trees in the batch
     for (tt in batch_start:batch_end) {
-      tr <- tt - 1L
-      uleaf <- as.integer(native_leaf_ids[[tt]])
-      meta[[mi]] <- list(tt = tt,
-                         tr = tr,
-                         uleaf = uleaf)
-
-      # For each leaf in this tree, ask the helper for the sequence of
-      # internal node IDs that lead to that leaf; each node contributes
-      # one "step" in the final path.
-      for (leaf_id in uleaf) {
-        # path node IDs leading to leaf
-        pn <- helpers$get_leaf_path(tr, leaf_id)$nodes
-        if (length(pn)) {
-          total_steps <- total_steps + length(pn)
-        }
-      }
-      mi <- mi + 1L
-    }
-
-    # If there are no path steps at all in this batch, return an empty
-    # table with the expected schema.
-    if (total_steps == 0L) {
-      return(
-        data.table::data.table(
-          Tree = integer(0),
-          leaf_id = integer(0),
-          depth = integer(0),
-          feature = character(0),
-          direction = character(0),
-          split_val = numeric(0)
-        )
-      )
-    }
-
-    # Preallocate flat vectors for all path steps in this batch.
-    # These will hold one row per (tree, leaf, depth) combination.
-    Tree_v  <- integer(total_steps)
-    Leaf_v  <- integer(total_steps)
-    Depth_v <- integer(total_steps)
-    Feat_v  <- character(total_steps)
-    Dir_v   <- character(total_steps)
-    Split_v <- numeric(total_steps)
-    cursor <- 0L
-
-    # Second pass over trees in the batch:
-    # - build fast lookup arrays (yesA, noA, featA, spltA) from tdt for
-    # this tree's node IDs
-    # - for each leaf, expand its path into per-step (feature, direction,
-    # split) entries and write into the preallocated vectors.
-    for (m in meta) {
-      tt <- m$tt
-      tr <- m$tr
-      uleaf <- m$uleaf
+      tr    <- tt - 1L
+      uleaf <- native_leaf_ids[[tt]]
+      uleaf <- as.integer(uleaf)
 
       # Subset node table for this tree (node IDs, children, feature, split)
       tt_dt <- tdt[.(tr)]
-      if (!nrow(tt_dt))
-        next
 
       # Build compact lookup arrays indexed by node ID + 1.
-      # This lets us map node IDs -> (Yes, No, Feature, Split) in O(1).
       maxid <- max(tt_dt$ID, na.rm = TRUE)
+      maxid <- as.integer(maxid)
 
       yesA <- rep.int(NA_integer_, maxid + 1L)
       yesA[tt_dt$ID + 1L] <- tt_dt$Yes
 
       noA <- rep.int(NA_integer_, maxid + 1L)
-      noA [tt_dt$ID + 1L] <- tt_dt$No
+      noA[tt_dt$ID + 1L] <- tt_dt$No
 
       featA <- rep.int(NA_character_, maxid + 1L)
       featA[tt_dt$ID + 1L] <- as.character(tt_dt$Feature)
@@ -112,14 +76,44 @@
       spltA[tt_dt$ID + 1L] <-
         suppressWarnings(as.numeric(tt_dt$Split))
 
+      # Parent map + max depth are guaranteed to exist for trees
+      # coming from make_boosted() / .build_tree_helpers().
+      pmap <- helpers$get_parent_map(tr)
+      max_depth <- as.integer(helpers$get_max_depth(tr))
+
+      # buffer to hold a leaf→root chain (max length = max_depth)
+      tmp_nodes <- integer(max_depth)
+
       # Loop over all leaves for this tree, and expand each leaf path
       # into its sequence of decision steps.
       for (leaf_id in uleaf) {
-        # pn = internal node IDs along the path from root to this leaf
-        pn <- helpers$get_leaf_path(tr, leaf_id)$nodes
-        k <- length(pn)
-        if (!k)
+        # leaf → root walk using parent map
+        k   <- 0L
+        cur <- leaf_id
+
+        while (!is.na(cur) && cur != 0L) {
+          par <- pmap[cur + 1L]
+          if (is.na(par)) break
+
+          if (k < max_depth) {
+            k <- k + 1L
+            tmp_nodes[k] <- par
+          } else {
+            # if something goes weird with max_depth, bail on this leaf
+            k <- 0L
+            break
+          }
+          cur <- par
+        }
+
+        # If this leaf has no valid internal path, skip it
+        if (k == 0L)
           next
+
+        # nodes from root → leaf = reversed leaf→root chain
+        pn <- tmp_nodes[seq.int(k, 1L)]
+
+        ensure_capacity(k)
 
         # child_along[i] = which child node we take after node pn[i]
         # along the path. For the last internal node, the "child" is
@@ -158,14 +152,15 @@
       }
     }
 
-    # Wrap batch-level vectors into a data.table.
+    used <- seq_len(cursor)
+
     data.table::data.table(
-      Tree      = Tree_v,
-      leaf_id   = Leaf_v,
-      depth     = Depth_v,
-      feature   = Feat_v,
-      direction = Dir_v,
-      split_val = Split_v
+      Tree      = Tree_v [used],
+      leaf_id   = Leaf_v [used],
+      depth     = Depth_v[used],
+      feature   = Feat_v [used],
+      direction = Dir_v  [used],
+      split_val = Split_v[used]
     )
   }
 
@@ -179,13 +174,12 @@
   }
 
   # Bind all batches into a single leaf-path table.
-  LS <-
-    data.table::rbindlist(out_list, use.names = TRUE, fill = TRUE)
+  LS <- data.table::rbindlist(out_list, use.names = TRUE, fill = TRUE)
   if (!nrow(LS)) {
-    data.table::setkey(LS, Tree, leaf_id)
-    # Keep schema consistent with non-empty case
-    return(LS[, .(Tree, leaf_id, depth, feature, direction, split_val = numeric())])
+    stop("[.extract_leaf_paths] No leaf paths were extracted. Check xgboost model and .parse_xgboost_tree() output.")
   }
+
+  LS <- data.table::rbindlist(out_list, use.names = TRUE, fill = TRUE)
 
   # Drop steps where feature is NA or empty and normalize types.
   LS <- LS[!is.na(feature) & nzchar(feature)]
