@@ -67,7 +67,6 @@
   maxd_env   <- new.env(parent = emptyenv())
   leaf_cache <- new.env(parent = emptyenv())
 
-
   # 4. get_depth_map(tr)
   #
   # For a given tree `tr`, returns an integer vector `dep` where
@@ -249,10 +248,16 @@
     out
   }
 
-  # Return a small list of helper functions used elsewhere
+  # simple accessor for the parent map
+  get_parent_map <- function(tr) {
+    parent_env[[as.character(tr)]]
+  }
+
+  # Return a list of helper functions
   list(
-    get_depth_map = get_depth_map,
-    get_max_depth = get_max_depth,
-    get_leaf_path = get_leaf_path
+    get_depth_map   = get_depth_map,
+    get_max_depth   = get_max_depth,
+    get_leaf_path   = get_leaf_path,
+    get_parent_map  = get_parent_map
   )
 }
