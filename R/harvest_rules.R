@@ -232,6 +232,13 @@ harvest_rules <- function(boosted,
   # Pre-allocate container for pooled rule-level summaries
   pooled     <- vector("list", length(uniq_rules))
 
+
+  progress_every_rules <- if (!is.null(progress_every) && progress_every > 0L) {
+    as.integer(10L * progress_every)
+  } else {
+    NULL
+  }
+
   # Pool SNPs under each rule and compute enrichment metrics
   for (i in seq_along(uniq_rules)) {
     rs <- uniq_rules[i]
@@ -317,9 +324,9 @@ harvest_rules <- function(boosted,
       med_y_overall = med_o
     )
 
-    # Optional per-rule progress
-    if (!is.null(progress_every) && progress_every > 0L &&
-        (i %% progress_every == 0L)) {
+    # Optional per-rule progress (every 10 * progress_every)
+    if (!is.null(progress_every_rules) &&
+        (i %% progress_every_rules == 0L || i == length(uniq_rules))) {
       message(
         sprintf(
           "[%s] processed %d / %d rule strings (%.1f%%)",
