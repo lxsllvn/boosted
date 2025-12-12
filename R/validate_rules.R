@@ -58,9 +58,9 @@ validate_rules <- function(boosted,
   rule_meta_tbl   <- data.table::as.data.table(harvest$R[, .(rule_str, rule_len)])
 
   # Harvest metadata
-  max_depth        <- harvest$max_depth
-  tighten_monotone <- harvest$tighten_monotone
-  n_yvar_train     <- harvest$n_yvar_train
+  max_depth        <- harvest$meta$max_depth
+  tighten_monotone <- harvest$meta$tighten_monotone
+  n_yvar_train     <- harvest$meta$n_yvar_train
 
   # Decide which rules to validate
   if (is.null(candidate_rules)) {
