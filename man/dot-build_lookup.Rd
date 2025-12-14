@@ -4,12 +4,30 @@
 \alias{.build_lookup}
 \title{Title}
 \usage{
-.build_lookup(dense_leaf_ids, native_leaf_ids, extr_idx, bg_idx, all = FALSE)
+.build_lookup(
+  dense_leaf_ids,
+  native_leaf_ids,
+  extr_idx,
+  bg_idx,
+  all = NULL,
+  use_rcpp = TRUE
+)
+
+.build_lookup(
+  dense_leaf_ids,
+  native_leaf_ids,
+  extr_idx,
+  bg_idx,
+  all = NULL,
+  use_rcpp = TRUE
+)
 }
 \arguments{
 \item{all}{}
 }
 \description{
 Title
+
+Internal dispatcher for build_lookup
 }
 \keyword{internal}

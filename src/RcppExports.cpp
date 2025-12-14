@@ -10,6 +10,21 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// build_lookup_rcpp
+List build_lookup_rcpp(List dense_leaf_ids, List native_leaf_ids, IntegerVector extr_idx, IntegerVector bg_idx, bool all);
+RcppExport SEXP _boosted_build_lookup_rcpp(SEXP dense_leaf_idsSEXP, SEXP native_leaf_idsSEXP, SEXP extr_idxSEXP, SEXP bg_idxSEXP, SEXP allSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type dense_leaf_ids(dense_leaf_idsSEXP);
+    Rcpp::traits::input_parameter< List >::type native_leaf_ids(native_leaf_idsSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type extr_idx(extr_idxSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type bg_idx(bg_idxSEXP);
+    Rcpp::traits::input_parameter< bool >::type all(allSEXP);
+    rcpp_result_gen = Rcpp::wrap(build_lookup_rcpp(dense_leaf_ids, native_leaf_ids, extr_idx, bg_idx, all));
+    return rcpp_result_gen;
+END_RCPP
+}
 // score_snps_rcpp
 SEXP score_snps_rcpp(SEXP test_leaf_map, SEXP leaf_llrs_by_tree, int Tm, int n);
 RcppExport SEXP _boosted_score_snps_rcpp(SEXP test_leaf_mapSEXP, SEXP leaf_llrs_by_treeSEXP, SEXP TmSEXP, SEXP nSEXP) {
@@ -40,6 +55,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_boosted_build_lookup_rcpp", (DL_FUNC) &_boosted_build_lookup_rcpp, 5},
     {"_boosted_score_snps_rcpp", (DL_FUNC) &_boosted_score_snps_rcpp, 4},
     {"_boosted_snp_lookup_rcpp", (DL_FUNC) &_boosted_snp_lookup_rcpp, 4},
     {NULL, NULL, 0}
