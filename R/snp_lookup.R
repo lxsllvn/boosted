@@ -72,12 +72,11 @@
     .snp_lookup_rcpp(pairs,
                      snps_ext_by_leaf,
                      snps_bg_by_leaf,
-                     snps_all_by_leaf = NULL)
+                     snps_all_by_leaf)
   } else {
     .snp_lookup_R(pairs,
                   snps_ext_by_leaf,
                   snps_bg_by_leaf,
-                  snps_all_by_leaf = NULL)
+                  snps_all_by_leaf)
   }
 }
-
