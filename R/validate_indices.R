@@ -62,6 +62,6 @@
     N_extr_test    = length(ei_te),
     N_bg_test      = length(bi_te),
     N_index_train  = length(c(ei_tr, bi_tr)),
-    N_index_test   = length(c(ei_te, ei_te))
+    N_index_test   = length(c(ei_te, bi_te))
   )
 }
