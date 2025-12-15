@@ -269,7 +269,7 @@ validate_rules <- function(boosted,
       meta         = list(
         max_depth        = max_depth,
         tighten_monotone = tighten_monotone,
-        n_train          = n_yvar_train,
+        n_train          = n_train,
         n_test           = n_yvar_test,
         Tm               = Tm
       )
