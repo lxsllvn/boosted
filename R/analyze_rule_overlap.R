@@ -9,7 +9,6 @@
 #' @export
 #'
 #' @examples
-
 analyze_rule_overlap <- function(boosted,
                                  harvest,
                                  top_n = 500L,
@@ -94,11 +93,16 @@ analyze_rule_overlap <- function(boosted,
   buckets_bg  <- vector("list", K)
   buckets_all <- vector("list", K)
 
+  if (!data.table::haskey(pairs_all) ||
+      !identical(data.table::key(pairs_all), "rule_str")) {
+    data.table::setkey(pairs_all, rule_str)
+  }
+
   for (k in seq_len(K)) {
     rs <- rule_ids[k]
 
     # All (Tree, leaf_id) pairs where this rule held in the ensemble
-    pr <- unique(pairs_all[rule_str == rs, .(Tree, leaf_id)])
+    pr <- unique(pairs_all[J(rs), .(Tree, leaf_id)])
     if (!nrow(pr)) {
       buckets_ext[[k]] <- integer(0)
       buckets_bg [[k]] <- integer(0)
@@ -114,9 +118,9 @@ analyze_rule_overlap <- function(boosted,
         snps_bg_by_leaf  = snps_bg_by_leaf,
         snps_all_by_leaf = snps_all_by_leaf
       )
-      buckets_ext[[k]] <- buckets$bucket_ext
-      buckets_bg [[k]] <- buckets$bucket_bg
-      buckets_all[[k]] <- buckets$bucket_all
+      buckets_ext[[k]] <- sort.int(unique(buckets$bucket_ext))
+      buckets_bg [[k]] <- sort.int(unique(buckets$bucket_bg))
+      buckets_all[[k]] <- sort.int(unique(buckets$bucket_all))
     }
 
     # Optional progress over rule buckets
@@ -150,129 +154,209 @@ analyze_rule_overlap <- function(boosted,
   )
   summary_tbl <- R_use[, ..summary_cols]
 
-  # Initialize Jaccard matrices over extreme / background / all SNPs
+  # Compute pairwise intersections in compiled code via sparse incidence
+  # matrices and tcrossprod(). This replaces the O(K^2) pairwise
+  # set-intersection loops.
+  #
+  # Note: SNP indices in buckets_* are row positions in the train/test leaf
+  # matrices, so they are not contiguous. We remap them to a compact 1..N_used
+  # index first.
+
+  # Build a compact SNP universe over the selected rules (all buckets)
+  snps_universe <-
+    sort.int(unique(unlist(buckets_all, use.names = FALSE)))
+  N_used <- length(snps_universe)
+
+  # Guard: if all selected rules are empty, return empty structures
+  if (N_used == 0L) {
+    labs <- paste0("r", seq_len(K))
+
+    J_ext <-
+      matrix(0,
+             nrow = K,
+             ncol = K,
+             dimnames = list(labs, labs))
+    J_bg  <-
+      matrix(0,
+             nrow = K,
+             ncol = K,
+             dimnames = list(labs, labs))
+    J_all <-
+      matrix(0,
+             nrow = K,
+             ncol = K,
+             dimnames = list(labs, labs))
+
+    overlap_tbl <- data.table::data.table()
+
+    return(
+      list(
+        summary     = summary_tbl[],
+        jaccard_ext = J_ext,
+        jaccard_bg  = J_bg,
+        jaccard_all = J_all,
+        overlap     = overlap_tbl[],
+        rule_ids    = rule_ids
+      )
+    )
+  }
+
+  # Remap each bucket to 1..N_used (based on snps_universe)
+  buckets_all_m <-
+    lapply(buckets_all, function(b)
+      match(b, snps_universe))
+  buckets_ext_m <-
+    lapply(buckets_ext, function(b)
+      match(b, snps_universe))
+  buckets_bg_m  <-
+    lapply(buckets_bg,  function(b)
+      match(b, snps_universe))
+
+  # Build sparse incidence matrices: rows = rules, cols = SNPs (remapped 1..N_used)
+  .build_incidence <- function(buckets_m) {
+    lens <- lengths(buckets_m)
+    if (!any(lens)) {
+      return(Matrix::sparseMatrix(
+        i = integer(0),
+        j = integer(0),
+        x = 1L,
+        dims = c(K, N_used)
+      ))
+    }
+    i <- rep.int(seq_len(K), lens)
+    j <- unlist(buckets_m, use.names = FALSE)
+    Matrix::sparseMatrix(
+      i = i,
+      j = j,
+      x = 1L,
+      dims = c(K, N_used)
+    )
+  }
+
+  M_all <- .build_incidence(buckets_all_m)
+  M_ext <- .build_incidence(buckets_ext_m)
+  M_bg  <- .build_incidence(buckets_bg_m)
+
+  # Intersection count matrices (K x K)
+  C_all <- Matrix::tcrossprod(M_all)
+  C_ext <- Matrix::tcrossprod(M_ext)
+  C_bg  <- Matrix::tcrossprod(M_bg)
+
+  # Convert to dense matrices for simple downstream arithmetic (K is small; e.g., 2000 → ~32 MB per matrix)
+  I_all <- as.matrix(C_all)
+  I_ext <- as.matrix(C_ext)
+  I_bg  <- as.matrix(C_bg)
+
+  # Sizes per rule
+  n_all <- diag(I_all)
+  n_ext <- diag(I_ext)
+  n_bg  <- diag(I_bg)
+
+  # Jaccard matrices over extreme / background / all SNPs
+  # Use the same convention as before: if union is 0, Jaccard = 0.
+  .jaccard_from_intersections <- function(I, nA) {
+    U <- outer(nA, nA, "+") - I
+    J <- matrix(0, nrow = K, ncol = K)
+    ok <- (U > 0)
+    J[ok] <- I[ok] / U[ok]
+    J
+  }
+
   labs <- paste0("r", seq_len(K))
-  J_ext <-
-    matrix(
-      NA_real_,
-      nrow = K,
-      ncol = K,
-      dimnames = list(labs, labs)
-    )
-  J_bg <-
-    matrix(
-      NA_real_,
-      nrow = K,
-      ncol = K,
-      dimnames = list(labs, labs)
-    )
-  J_all <-
-    matrix(
-      NA_real_,
-      nrow = K,
-      ncol = K,
-      dimnames = list(labs, labs)
-    )
+  J_all <- .jaccard_from_intersections(I_all, n_all)
+  J_ext <- .jaccard_from_intersections(I_ext, n_ext)
+  J_bg  <- .jaccard_from_intersections(I_bg,  n_bg)
+
+  dimnames(J_all) <- list(labs, labs)
+  dimnames(J_ext) <- list(labs, labs)
+  dimnames(J_bg)  <- list(labs, labs)
 
   # Also build a rich long-form overlap table:
   # for each (i,j) we store intersection sizes and directional proportions.
-  overlap_list <- vector("list", K * (K - 1L) / 2L)
-  oi <- 1L
+  n_pairs <- K * (K - 1L) / 2L
 
-  for (i in seq_len(K)) {
-    Ai_ext <- buckets_ext[[i]]
-    Ai_bg  <- buckets_bg [[i]]
-    Ai_all <- buckets_all[[i]]
+  i_index <- integer(n_pairs)
+  j_index <- integer(n_pairs)
 
-    nA_ext <- length(Ai_ext)
-    nA_bg  <- length(Ai_bg)
-    nA_all <- length(Ai_all)
-
-    for (j in seq_len(K)) {
-      Aj_ext <- buckets_ext[[j]]
-      Aj_bg  <- buckets_bg [[j]]
-      Aj_all <- buckets_all[[j]]
-
-      nB_ext <- length(Aj_ext)
-      nB_bg  <- length(Aj_bg)
-      nB_all <- length(Aj_all)
-
-      # Jaccard similarities for extremes, background, and all SNPs
-      J_ext[i, j] <- .jacc(Ai_ext, Aj_ext)
-      J_bg [i, j] <- .jacc(Ai_bg,  Aj_bg)
-      J_all[i, j] <- .jacc(Ai_all, Aj_all)
-
-      # For the "rich" view, only store one triangle (i < j)
-      if (j <= i)
-        next
-
-      # Intersection counts
-      inter_ext <- length(intersect(Ai_ext, Aj_ext))
-      inter_bg  <- length(intersect(Ai_bg,  Aj_bg))
-      inter_all <- length(intersect(Ai_all, Aj_all))
-
-      # Directional overlap proportions for all-SNP buckets:
-      # prop_all_i_in_j = fraction of A's bucket that B also catches
-      # prop_all_j_in_i = fraction of B's bucket that A also catches
-      prop_all_i_in_j <-
-        if (nA_all > 0L)
-          inter_all / nA_all
-      else
-        NA_real_
-      prop_all_j_in_i <-
-        if (nB_all > 0L)
-          inter_all / nB_all
-      else
-        NA_real_
-
-      # Unique counts in all-SNP buckets
-      unique_i_all <- nA_all - inter_all
-      unique_j_all <- nB_all - inter_all
-
-      overlap_list[[oi]] <- data.table::data.table(
-        i_index = i,
-        j_index = j,
-        rule_i  = rule_ids[i],
-        rule_j  = rule_ids[j],
-
-        # bucket sizes (all SNPs)
-        n_all_i = nA_all,
-        n_all_j = nB_all,
-        n_all_intersect = inter_all,
-        n_all_unique_i  = unique_i_all,
-        n_all_unique_j  = unique_j_all,
-
-        # extremes & background intersection sizes
-        n_ext_i = nA_ext,
-        n_ext_j = nB_ext,
-        n_bg_i  = nA_bg,
-        n_bg_j  = nB_bg,
-
-        n_bg_intersect  = inter_bg,
-        n_ext_intersect = inter_ext,
-
-        # directional overlap for all-SNP buckets
-        prop_all_i_in_j = prop_all_i_in_j,
-        prop_all_j_in_i = prop_all_j_in_i,
-
-        # Jaccard (duplicated from matrices, but handy here)
-        jacc_ext = J_ext[i, j],
-        jacc_bg  = J_bg [i, j],
-        jacc_all = J_all[i, j]
-      )
-      oi <- oi + 1L
-    }
-
-    # Optional progress over overlap matrix rows
-    if (!is.null(progress_every) && progress_every > 0L &&
-        (i %% progress_every == 0L)) {
-      message(sprintf("[%s] computed overlaps for %d / %d focal rules",
-                      FUN, i, K))
-    }
+  # Fill (i,j) indices for i < j without allocating large row()/col() matrices
+  pos <- 1L
+  for (i in seq_len(K - 1L)) {
+    nj <- K - i
+    idx <- pos:(pos + nj - 1L)
+    i_index[idx] <- i
+    j_index[idx] <- (i + 1L):K
+    pos <- pos + nj
   }
 
-  overlap_tbl <-
-    data.table::rbindlist(overlap_list, use.names = TRUE, fill = TRUE)
+  # Extract intersections for i < j
+  inter_all <- I_all[cbind(i_index, j_index)]
+  inter_ext <- I_ext[cbind(i_index, j_index)]
+  inter_bg  <- I_bg [cbind(i_index, j_index)]
+
+  n_all_i <- as.integer(n_all[i_index])
+  n_all_j <- as.integer(n_all[j_index])
+
+  n_ext_i <- as.integer(n_ext[i_index])
+  n_ext_j <- as.integer(n_ext[j_index])
+
+  n_bg_i <- as.integer(n_bg[i_index])
+  n_bg_j <- as.integer(n_bg[j_index])
+
+  n_all_intersect <- as.integer(inter_all)
+  n_ext_intersect <- as.integer(inter_ext)
+  n_bg_intersect  <- as.integer(inter_bg)
+
+  n_all_unique_i  <- n_all_i - n_all_intersect
+  n_all_unique_j  <- n_all_j - n_all_intersect
+
+  prop_all_i_in_j <-
+    ifelse(n_all_i > 0L, n_all_intersect / n_all_i, NA_real_)
+  prop_all_j_in_i <-
+    ifelse(n_all_j > 0L, n_all_intersect / n_all_j, NA_real_)
+
+  # Jaccard vectors (duplicated from matrices, but handy here)
+  jacc_all <- J_all[cbind(i_index, j_index)]
+  jacc_ext <- J_ext[cbind(i_index, j_index)]
+  jacc_bg  <- J_bg [cbind(i_index, j_index)]
+
+  overlap_tbl <- data.table::data.table(
+    i_index = i_index,
+    j_index = j_index,
+
+    # bucket sizes (all SNPs)
+    n_all_i = n_all_i,
+    n_all_j = n_all_j,
+    n_all_intersect = n_all_intersect,
+    n_all_unique_i  = n_all_unique_i,
+    n_all_unique_j  = n_all_unique_j,
+
+    # extremes & background intersection sizes
+    n_ext_i = n_ext_i,
+    n_ext_j = n_ext_j,
+    n_bg_i  = n_bg_i,
+    n_bg_j  = n_bg_j,
+
+    n_bg_intersect  = n_bg_intersect,
+    n_ext_intersect = n_ext_intersect,
+
+    # directional overlap for all-SNP buckets
+    prop_all_i_in_j = prop_all_i_in_j,
+    prop_all_j_in_i = prop_all_j_in_i,
+
+    # Jaccard (duplicated from matrices, but handy here)
+    jacc_ext = jacc_ext,
+    jacc_bg  = jacc_bg,
+    jacc_all = jacc_all
+  )
+
+  overlap_tbl[, rule_i := factor(i_index, levels = seq_len(K), labels = rule_ids)]
+  overlap_tbl[, rule_j := factor(j_index, levels = seq_len(K), labels = rule_ids)]
+  data.table::setcolorder(overlap_tbl,
+                          c("i_index", "j_index", "rule_i", "rule_j",
+                            setdiff(
+                              names(overlap_tbl),
+                              c("i_index", "j_index", "rule_i", "rule_j")
+                            )))
 
   list(
     summary     = summary_tbl[],
