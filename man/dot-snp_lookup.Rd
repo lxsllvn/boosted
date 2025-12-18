@@ -6,8 +6,8 @@
 \usage{
 .snp_lookup(
   pairs,
-  snps_ext_by_leaf,
-  snps_bg_by_leaf,
+  snps_ext_by_leaf = NULL,
+  snps_bg_by_leaf = NULL,
   snps_all_by_leaf = NULL,
   use_rcpp = TRUE
 )

@@ -85,27 +85,35 @@ static inline List split_idx_by_leaf_cpp(const IntegerVector& idx,
 // [[Rcpp::export(name = ".build_lookup_rcpp")]]
 List build_lookup_rcpp(List dense_leaf_ids,
                        List native_leaf_ids,
-                       IntegerVector extr_idx,
-                       IntegerVector bg_idx,
+                       SEXP extr_idx_sexp = R_NilValue,
+                       SEXP bg_idx_sexp   = R_NilValue,
                        bool all = false) {
 
   const int Tm = dense_leaf_ids.size();
 
-  List snps_ext_by_leaf(Tm);
-  List snps_bg_by_leaf(Tm);
+  const bool have_ext = !Rf_isNull(extr_idx_sexp) && Rf_length(extr_idx_sexp) > 0;
+  const bool have_bg  = !Rf_isNull(bg_idx_sexp)   && Rf_length(bg_idx_sexp)   > 0;
+  const bool have_all = all;
+
+  List snps_ext_by_leaf = have_ext ? List(Tm) : List::create();
+  List snps_bg_by_leaf  = have_bg  ? List(Tm) : List::create();
 
   // Keep as a real List when all==true; otherwise return NULL
   List snps_all_by_leaf;
-  bool have_all = all;
   if (have_all) snps_all_by_leaf = List(Tm);
+
+  IntegerVector extr_idx;
+  IntegerVector bg_idx;
+  if (have_ext) extr_idx = as<IntegerVector>(extr_idx_sexp);
+  if (have_bg)  bg_idx   = as<IntegerVector>(bg_idx_sexp);
 
   for (int tt = 0; tt < Tm; ++tt) {
     IntegerVector inv_t      = dense_leaf_ids[tt];
     IntegerVector native_ids = native_leaf_ids[tt];
 
     if (inv_t.size() == 0 || native_ids.size() == 0) {
-      snps_ext_by_leaf[tt] = List::create();
-      snps_bg_by_leaf[tt]  = List::create();
+      if (have_ext) snps_ext_by_leaf[tt] = List::create();
+      if (have_bg)  snps_bg_by_leaf[tt]  = List::create();
       if (have_all) snps_all_by_leaf[tt] = List::create();
       continue;
     }
@@ -126,8 +134,8 @@ List build_lookup_rcpp(List dense_leaf_ids,
       leaf_native[i] = native_ids[inv_t[i] - 1];
     }
 
-    snps_ext_by_leaf[tt] = split_idx_by_leaf_cpp(extr_idx, leaf_native);
-    snps_bg_by_leaf[tt]  = split_idx_by_leaf_cpp(bg_idx,  leaf_native);
+    if (have_ext) snps_ext_by_leaf[tt] = split_idx_by_leaf_cpp(extr_idx, leaf_native);
+    if (have_bg)  snps_bg_by_leaf[tt]  = split_idx_by_leaf_cpp(bg_idx,  leaf_native);
 
     if (have_all) {
       IntegerVector all_idx = seq_len(leaf_native.size()); // 1..n
@@ -136,8 +144,8 @@ List build_lookup_rcpp(List dense_leaf_ids,
   }
 
   return List::create(
-    _["snps_ext_by_leaf"] = snps_ext_by_leaf,
-    _["snps_bg_by_leaf"]  = snps_bg_by_leaf,
+    _["snps_ext_by_leaf"] = (have_ext ? (SEXP)snps_ext_by_leaf : R_NilValue),
+    _["snps_bg_by_leaf"]  = (have_bg  ? (SEXP)snps_bg_by_leaf  : R_NilValue),
     _["snps_all_by_leaf"] = (have_all ? (SEXP)snps_all_by_leaf : R_NilValue)
   );
 }

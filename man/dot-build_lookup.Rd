@@ -2,32 +2,18 @@
 % Please edit documentation in R/build_lookup.R
 \name{.build_lookup}
 \alias{.build_lookup}
-\title{Title}
+\title{Internal dispatcher for build_lookup}
 \usage{
 .build_lookup(
   dense_leaf_ids,
   native_leaf_ids,
-  extr_idx,
-  bg_idx,
+  extr_idx = NULL,
+  bg_idx = NULL,
   all = NULL,
   use_rcpp = TRUE
 )
-
-.build_lookup(
-  dense_leaf_ids,
-  native_leaf_ids,
-  extr_idx,
-  bg_idx,
-  all = NULL,
-  use_rcpp = TRUE
-)
-}
-\arguments{
-\item{all}{}
 }
 \description{
-Title
-
 Internal dispatcher for build_lookup
 }
 \keyword{internal}

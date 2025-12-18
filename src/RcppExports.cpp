@@ -11,17 +11,17 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // build_lookup_rcpp
-List build_lookup_rcpp(List dense_leaf_ids, List native_leaf_ids, IntegerVector extr_idx, IntegerVector bg_idx, bool all);
-RcppExport SEXP _boosted_build_lookup_rcpp(SEXP dense_leaf_idsSEXP, SEXP native_leaf_idsSEXP, SEXP extr_idxSEXP, SEXP bg_idxSEXP, SEXP allSEXP) {
+List build_lookup_rcpp(List dense_leaf_ids, List native_leaf_ids, SEXP extr_idx_sexp, SEXP bg_idx_sexp, bool all);
+RcppExport SEXP _boosted_build_lookup_rcpp(SEXP dense_leaf_idsSEXP, SEXP native_leaf_idsSEXP, SEXP extr_idx_sexpSEXP, SEXP bg_idx_sexpSEXP, SEXP allSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type dense_leaf_ids(dense_leaf_idsSEXP);
     Rcpp::traits::input_parameter< List >::type native_leaf_ids(native_leaf_idsSEXP);
-    Rcpp::traits::input_parameter< IntegerVector >::type extr_idx(extr_idxSEXP);
-    Rcpp::traits::input_parameter< IntegerVector >::type bg_idx(bg_idxSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type extr_idx_sexp(extr_idx_sexpSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type bg_idx_sexp(bg_idx_sexpSEXP);
     Rcpp::traits::input_parameter< bool >::type all(allSEXP);
-    rcpp_result_gen = Rcpp::wrap(build_lookup_rcpp(dense_leaf_ids, native_leaf_ids, extr_idx, bg_idx, all));
+    rcpp_result_gen = Rcpp::wrap(build_lookup_rcpp(dense_leaf_ids, native_leaf_ids, extr_idx_sexp, bg_idx_sexp, all));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -40,14 +40,14 @@ BEGIN_RCPP
 END_RCPP
 }
 // snp_lookup_rcpp
-SEXP snp_lookup_rcpp(DataFrame pairs, List snps_ext_by_leaf, List snps_bg_by_leaf, SEXP snps_all_by_leaf);
+SEXP snp_lookup_rcpp(DataFrame pairs, SEXP snps_ext_by_leaf, SEXP snps_bg_by_leaf, SEXP snps_all_by_leaf);
 RcppExport SEXP _boosted_snp_lookup_rcpp(SEXP pairsSEXP, SEXP snps_ext_by_leafSEXP, SEXP snps_bg_by_leafSEXP, SEXP snps_all_by_leafSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< DataFrame >::type pairs(pairsSEXP);
-    Rcpp::traits::input_parameter< List >::type snps_ext_by_leaf(snps_ext_by_leafSEXP);
-    Rcpp::traits::input_parameter< List >::type snps_bg_by_leaf(snps_bg_by_leafSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type snps_ext_by_leaf(snps_ext_by_leafSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type snps_bg_by_leaf(snps_bg_by_leafSEXP);
     Rcpp::traits::input_parameter< SEXP >::type snps_all_by_leaf(snps_all_by_leafSEXP);
     rcpp_result_gen = Rcpp::wrap(snp_lookup_rcpp(pairs, snps_ext_by_leaf, snps_bg_by_leaf, snps_all_by_leaf));
     return rcpp_result_gen;

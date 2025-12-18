@@ -2,19 +2,30 @@
 % Please edit documentation in R/snp_lookup.R
 \name{.snp_lookup_R}
 \alias{.snp_lookup_R}
-\title{Title}
+\title{SNP lookup for rule buckets}
 \usage{
 .snp_lookup_R(
   pairs,
-  snps_ext_by_leaf,
-  snps_bg_by_leaf,
+  snps_ext_by_leaf = NULL,
+  snps_bg_by_leaf = NULL,
   snps_all_by_leaf = NULL
 )
 }
 \arguments{
-\item{snps_all_by_leaf}{}
+\item{pairs}{data.frame/data.table with columns Tree (0-based) and leaf_id (native)}
+
+\item{snps_ext_by_leaf}{list-of-lists mapping tree -> leaf_id -> integer SNP indices (or NULL)}
+
+\item{snps_bg_by_leaf}{list-of-lists mapping tree -> leaf_id -> integer SNP indices (or NULL)}
+
+\item{snps_all_by_leaf}{list-of-lists mapping tree -> leaf_id -> integer SNP indices (or NULL)}
+}
+\value{
+list(bucket_ext, bucket_bg, bucket_all)
 }
 \description{
-Title
+Given a data.table/data.frame of (Tree, leaf_id) pairs, return the unique SNP
+indices captured by those leaves, optionally split into extreme/background/all
+universes depending on which lookup maps are provided.
 }
 \keyword{internal}
