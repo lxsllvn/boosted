@@ -15,10 +15,17 @@ prepare_harvest <- function(boosted,
                             target_bins = 10L,
                             min_per_bin = 50L,
                             winsor_prob = 0.01,
-                            method = c("fd", "quantile")) {
+                            method  = c("fd", "quantile"),
+                            verbose = FALSE) {
   # Signature & basic checks
   FUN <- "prepare_harvest"
-  message(sprintf("[%s] start: %s", FUN, format(Sys.time(), "%Y-%m-%d %H:%M:%S")))
+  if (isTRUE(verbose)) {
+    message(sprintf(
+      "[%s] start: %s",
+      FUN,
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    ))
+  }
 
   if (!inherits(boosted, "boosted")) {
     stop(sprintf(
@@ -27,10 +34,57 @@ prepare_harvest <- function(boosted,
     ))
   }
 
-  # `leaf_paths` are the raw per-leaf splits (feature, direction, split_val)
-  # precomputed in make_boosted() via .extract_leaf_paths().
-  leaf_paths <- boosted$leaf_paths
+  # Parse arguments
   method     <- match.arg(method)
+
+  # Pull data from boosted
+  leaf_paths     <- boosted$leaf_paths # per-leaf splits (feature,
+                                       # direction, split_val)
+  extr_idx_train <- boosted$extr_idx_train
+  bg_idx_train   <- boosted$bg_idx_train
+  extr_idx_test  <- boosted$extr_idx_test
+  bg_idx_test    <- boosted$bg_idx_test
+
+  # Extract native and dense leaf IDs
+  native_ids_all       <- boosted$train_leaf_map$native_leaf_ids
+  dense_leaf_ids_train <- boosted$train_leaf_map$dense_leaf_ids
+  dense_leaf_ids_test  <- boosted$test_leaf_map$dense_leaf_ids
+
+  # -----------------------------------
+  # Build inverse leaf maps (leaf → SNP list)
+  # -----------------------------------
+  if (isTRUE(verbose)) {
+    message(sprintf(
+      "[%s] building SNP lookups: %s",
+      FUN,
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    ))
+  }
+
+  # For each tree tt and native leaf_id:
+  # snps_all_by_leaf[[tt]][[leaf_id]] = all SNP indices (labeled + unlabeled)
+  lookup_test <- .build_lookup(
+    dense_leaf_ids  = dense_leaf_ids_test,
+    native_leaf_ids = native_ids_all,
+    all             = TRUE
+  )
+
+  lookup_train <- .build_lookup(
+    dense_leaf_ids  = dense_leaf_ids_train,
+    native_leaf_ids = native_ids_all,
+    all             = TRUE
+  )
+
+  # -----------------------------------
+  # Build feature binning specification
+  # -----------------------------------
+  if (isTRUE(verbose)) {
+    message(sprintf(
+      "[%s] binning features: %s",
+      FUN,
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    ))
+  }
 
   # Only use finite splits (drop NA/inf) and identify all features
   LS_split <- leaf_paths[is.finite(split_val)]
@@ -197,13 +251,24 @@ prepare_harvest <- function(boosted,
     mids_env [[f]]  <- mids
   }
 
-  # Attach binning spec to boosted object
+  # -----------------------------------
+  # Attach SNP lookup and binning spec
+  # -----------------------------------
   boosted$harvest_bins <- list(breaks = breaks_env,
                                mids   = mids_env)
+  boosted$snps_all_by_leaf_train <- lookup_train$snps_all_by_leaf
+  boosted$snps_all_by_leaf_test  <- lookup_test$snps_all_by_leaf
 
-  # Add second class tag so harvest_rules() can detect that binning is done
+  # Add second class tag so rule-related functions know the set up is done
   if (!inherits(boosted, "boosted_binned")) {
     class(boosted) <- c("boosted_binned", class(boosted))
+  }
+  if (isTRUE(verbose)) {
+    message(sprintf(
+      "[%s] completed: %s",
+      FUN,
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    ))
   }
   boosted
 }

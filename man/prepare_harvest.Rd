@@ -9,7 +9,8 @@ prepare_harvest(
   target_bins = 10L,
   min_per_bin = 50L,
   winsor_prob = 0.01,
-  method = c("fd", "quantile")
+  method = c("fd", "quantile"),
+  verbose = FALSE
 )
 }
 \arguments{
