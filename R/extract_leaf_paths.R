@@ -196,3 +196,98 @@
   data.table::setkey(LS, Tree, leaf_id)
   LS[]
 }
+
+#' Title  Map desired prefixes -> (Tree, leaf_id) over ALL leaves.
+#'
+#' @param want_prefix data.table/data.frame with columns:
+#   - prefix_len (integer-ish)
+#   - rule_str_prefix (character)
+#' @param leaf_paths
+#' @param harvest_bins
+#' @param max_depth
+#' @param tighten_monotone
+#' @param proper_only
+#'
+#' @return data.table(prefix_len, rule_str_prefix, Tree, leaf_id) keyed by (prefix_len, rule_str_prefix)
+#' @keywords internal
+#'
+#' @examples
+.map_prefixes_to_leaves <- function(want_prefix,
+                                    leaf_paths,
+                                    harvest_bins,
+                                    max_depth,
+                                    tighten_monotone,
+                                    proper_only = TRUE) {
+  max_depth <- as.integer(max_depth)
+
+  want_prefix <- data.table::as.data.table(want_prefix)
+  if (!all(c("prefix_len", "rule_str_prefix") %in% names(want_prefix))) {
+    stop("[.map_prefixes_to_leaves] want_prefix must have columns: prefix_len, rule_str_prefix")
+  }
+
+  want_prefix[, `:=`(
+    prefix_len      = as.integer(prefix_len),
+    rule_str_prefix = as.character(rule_str_prefix)
+  )]
+
+  want_prefix <- unique(want_prefix, by = c("prefix_len", "rule_str_prefix"))
+  want_prefix <- want_prefix[
+    is.finite(prefix_len) & prefix_len >= 1L & prefix_len <= max_depth
+  ]
+
+  if (!nrow(want_prefix)) {
+    out <- want_prefix[, .(prefix_len, rule_str_prefix, Tree = integer(), leaf_id = integer())][0]
+    data.table::setkey(out, prefix_len, rule_str_prefix)
+    return(out)
+  }
+
+  max_need <- max(want_prefix$prefix_len, 0L)
+
+  # Build prefix -> (Tree, leaf_id) map once so we don't scan per prefix.
+  # Prefixes are mapped over all leaf rule strings so they represent true path
+  # prefixes.
+  leaf_rules_all <- .build_rule_strings(
+    leaf_paths       = leaf_paths,
+    bin_spec         = harvest_bins,
+    max_depth        = max_depth,
+    tighten_monotone = tighten_monotone
+  )[, .(Tree, leaf_id, rule_str)]
+
+  leaf_rules_all <- unique(leaf_rules_all, by = c("Tree", "leaf_id"))
+  leaf_rules_all[, `:=`(Tree = as.integer(Tree), leaf_id = as.integer(leaf_id))]
+
+  # Expand each leaf to prefixes (only up to what we actually need)
+  leaf_prefixes <- leaf_rules_all[, {
+    if (.N != 1L) {
+      stop("[.map_prefixes_to_leaves] leaf_rules_all has multiple rule_str per (Tree, leaf_id)")
+    }
+
+    rs    <- rule_str[1L]
+    conds <- strsplit(rs, " | ", fixed = TRUE)[[1]]
+
+    cap <- if (isTRUE(proper_only)) length(conds) - 1L else length(conds)
+    max_d <- min(max_depth, max_need, cap)
+
+    if (!is.finite(max_d) || max_d < 1L) {
+      NULL
+    } else {
+      data.table::data.table(
+        prefix_len      = as.integer(seq_len(max_d)),
+        rule_str_prefix = vapply(
+          seq_len(max_d),
+          function(d) paste(conds[1:d], collapse = " | "),
+          character(1)
+        )
+      )
+    }
+  }, by = .(Tree, leaf_id)]
+
+  data.table::setkey(leaf_prefixes, prefix_len, rule_str_prefix)
+  data.table::setkey(want_prefix,  prefix_len, rule_str_prefix)
+
+  out <- leaf_prefixes[want_prefix, nomatch = 0L]
+  out <- unique(out, by = c("prefix_len", "rule_str_prefix", "Tree", "leaf_id"))
+  data.table::setkey(out, prefix_len, rule_str_prefix)
+
+  out[]
+}
