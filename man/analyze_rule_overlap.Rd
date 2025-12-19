@@ -4,9 +4,23 @@
 \alias{analyze_rule_overlap}
 \title{Title}
 \usage{
-analyze_rule_overlap(boosted, harvest, top_n = 500L, progress_every = NULL)
+analyze_rule_overlap(
+  boosted,
+  harvest,
+  candidate_rules,
+  which = c("train", "test"),
+  fold_indices = NULL,
+  shrink_m = 0,
+  progress_every = NULL
+)
 }
 \arguments{
+\item{which}{character; evaluate on "train" or "test"}
+
+\item{fold_indices}{optional integer vector of SNP indices (1-based) to restrict evaluation universe}
+
+\item{shrink_m}{non-negative numeric; beta–binomial smoothing strength for precision/lift (0 disables)}
+
 \item{progress_every}{}
 }
 \description{
