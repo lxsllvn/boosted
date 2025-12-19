@@ -2,33 +2,41 @@
 #'
 #' @param boosted
 #' @param harvest
-#' @param max_depth
-#' @param top_n
-#' @param progress_every
+#' @param candidate_rules
+#' @param which
+#' @param shrink_m
 #' @param alpha
+#' @param fold_indices
+#' @param progress_every
 #'
 #' @return
 #' @export
 #'
 #' @examples
-
 analyze_rule_depth <- function(boosted,
                                harvest,
-                               max_depth      = NULL,
-                               top_n          = 1000L,
-                               progress_every = NULL,
-                               alpha          = 0.5) {
+                               candidate_rules,
+                               which = c("train", "test"),
+                               shrink_m       = 0,
+                               alpha          = 0.5,
+                               fold_indices   = NULL,
+                               progress_every = NULL
+                               ) {
   # Signature & basic checks
   FUN <- "analyze_rule_depth"
   message(sprintf("[%s] start: %s", FUN, format(Sys.time(), "%Y-%m-%d %H:%M:%S")))
 
   if (!inherits(boosted, "boosted")) {
-    stop(
-      sprintf(
-        "[%s] Input must be an object of class 'boosted' (from make_boosted()).",
-        FUN
-      )
-    )
+    stop(sprintf(
+      "[%s] Input must be an object of class 'boosted' (from make_boosted()).",
+      FUN
+    ))
+  }
+  if (!inherits(boosted, "boosted_binned")) {
+    stop(sprintf(
+      "[%s] boosted is not ready; run prepare_harvest() first.",
+      FUN
+    ))
   }
   if (!inherits(harvest, "boosted_harvest")) {
     stop(
@@ -39,111 +47,132 @@ analyze_rule_depth <- function(boosted,
     )
   }
 
-  # If max_depth is NULL, default to the depth used in harvest_rules()
-  if (is.null(max_depth)) {
-    max_depth <- as.integer(harvest$meta$max_depth)
-  } else {
-    max_depth <- as.integer(max_depth)
+  # Validate candidate rules
+  if (!is.character(candidate_rules)) {
+    if (is.list(candidate_rules) || is.data.frame(candidate_rules)) {
+      if ("rule_str" %in% names(candidate_rules)) {
+        candidate_rules <- candidate_rules[["rule_str"]]
+      } else if ("rule_prefix" %in% names(candidate_rules)) {
+        candidate_rules <- candidate_rules[["rule_prefix"]]
+      }
+    }
+  }
+  if (!is.character(candidate_rules)) {
+    stop(
+      sprintf(
+        "[%s] candidate_rules must be a character vector, or have a 'rule_str' or 'rule_prefix' field.",
+        FUN
+      )
+    )
+  }
+  candidate_rules <-
+    unique(candidate_rules[!is.na(candidate_rules)])
+  candidate_rules <-
+    candidate_rules[nzchar(trimws(candidate_rules))]
+
+  if (!length(candidate_rules)) {
+    stop(sprintf("[%s] candidate_rules is empty.",
+                 FUN))
   }
 
-  # Pull data from boosted
-  extr_idx_train <- boosted$extr_idx_train
-  bg_idx_train   <- boosted$bg_idx_train
-  N_extr_train   <- boosted$N_extr_train
-  N_bg_train     <- boosted$N_bg_train
-  Tm             <- boosted$Tm
+  # Determine if we're working with test or training data
+  which <- match.arg(which)
 
-  train_leaf_map <- boosted$train_leaf_map
-  dense_leaf_ids <- train_leaf_map$dense_leaf_ids
-  native_ids_all <- train_leaf_map$native_leaf_ids
+  # Pull test/training indices and yvar data from `boosted` as requested
+  extr_idx <- boosted[[sprintf("extr_idx_%s", which)]]
+  bg_idx   <- boosted[[sprintf("bg_idx_%s",   which)]]
+  yvar     <- boosted[[sprintf("yvar_%s",     which)]]
+  n_all    <- boosted[[sprintf("n_yvar_%s",   which)]]
 
-  base_rate <- boosted$base_rate_train
-  y_num     <- boosted$yvar_train
+  # Pull per-tree leaf → SNP maps; reused for all rules and prefixes.
+  snps_all_by_leaf <- boosted[[sprintf("snps_all_by_leaf_%s",   which)]]
+  leaf_paths       <- boosted$leaf_paths
+  harvest_bins     <- boosted$harvest_bins
 
-  # Harvest ledger pieces: rule table + mapping from rules to (Tree, leaf_id)
-  R_tbl        <- data.table::as.data.table(harvest$R)
-  pairs_all    <- data.table::as.data.table(harvest$pairs_all)
-
-  # Build per-tree leaf → SNP maps, reused for all rules and prefixes.
-  # For each tree tt and native leaf_id:
-  # snps_ext_by_leaf[[tt]][[leaf_id]] = extreme SNP indices
-  # snps_bg_by_leaf [[tt]][[leaf_id]] = background SNP indices
-  # snps_all_by_leaf[[tt]][[leaf_id]] = all SNP indices (labeled + unlabeled)
-  lookup <- .build_lookup(
-    dense_leaf_ids  = dense_leaf_ids,
-    native_leaf_ids = native_ids_all,
-    extr_idx        = extr_idx_train,
-    bg_idx          = bg_idx_train,
-    all             = TRUE
-  )
-  snps_ext_by_leaf <- lookup$snps_ext_by_leaf
-  snps_bg_by_leaf  <- lookup$snps_bg_by_leaf
-  snps_all_by_leaf <- lookup$snps_all_by_leaf
-
-  # Choose anchor rules (top_n by lift, odds_ratio, recall, precision)
-  data.table::setorderv(
-    R_tbl,
-    cols  = c("lift", "odds_ratio", "recall", "precision"),
-    order = c(-1L, -1L, -1L, -1L)
-  )
-  if (is.finite(top_n) && top_n > 0L && top_n < nrow(R_tbl)) {
-    R_anchor <- R_tbl[seq_len(top_n)]
+  # If fold_indices != null, ensure that they are a valid vector of integers
+  if (is.null(fold_indices)) {
+    all_idx <- seq_len(n_all)
   } else {
-    R_anchor <- R_tbl
+    all_idx <- .check_idx(fold_indices, n_all, FUN, "fold_indices")
   }
 
-  # Derive prefixes from the selected anchor full rules, then compute
-  # prefix statistics ONCE per unique (prefix_len, rule_str_prefix).
-  # Make per-row grouping explicit (avoids .I confusion)
-  R_anchor[, row_id := .I]
+  # Restrict background/extreme labels to fold_indices
+  extr_idx  <- intersect(extr_idx, all_idx)
+  bg_idx    <- intersect(bg_idx, all_idx)
+  N_extr    <- length(extr_idx)
+  N_bg      <- length(bg_idx)
+  base_rate <- if ((N_extr + N_bg) > 0L) N_extr / (N_extr + N_bg) else NA_real_
 
-  prefix_universe <- R_anchor[, {
-    rs_full <- rule_str
-    conds   <- strsplit(rs_full, " \\| ", fixed = FALSE)[[1]]
+  # Membership vectors for fast counting within buckets
+  in_fold    <- rep(FALSE, n_all)
+  is_extreme <- rep(FALSE, n_all)
+  is_bg      <- rep(FALSE, n_all)
+
+  in_fold[all_idx]     <- TRUE
+  is_extreme[extr_idx] <- TRUE
+  is_bg[bg_idx]        <- TRUE
+
+  # Harvest ledger pieces: rule table (R) and metadata
+  R_tbl            <- data.table::as.data.table(harvest$R)
+  max_depth        <- as.integer(harvest$meta$max_depth)
+  tighten_monotone <- isTRUE(harvest$meta$tighten_monotone)
+
+  # Make sure max_depth exists
+  if (is.na(max_depth) || max_depth < 1L) {
+    stop("[analyze_rule_depth] harvest$meta$max_depth must be a positive integer")
+  }
+
+  anchor_tbl <- R_tbl[rule_str %chin% candidate_rules]
+  if (!nrow(anchor_tbl)) {
+    stop(sprintf("[%s] No candidate_rules matched harvest$R$rule_str.", FUN))
+  }
+  anchor_tbl <- unique(anchor_tbl, by = "rule_str")
+  rm(R_tbl)
+
+  prefix_universe <- anchor_tbl[, {
+    rs_full <- rule_str[1L]
+    conds   <- strsplit(rs_full, " | ", fixed = TRUE)[[1]]
     n_cond  <- length(conds)
 
     max_d <- min(as.integer(max_depth), n_cond - 1L)
-
-    if (!is.finite(max_d) || max_d < 1L) {
-      NULL
-    } else {
+    if (!is.finite(max_d) || max_d < 1L) NULL else
       data.table::data.table(
         rule_str_full   = rs_full,
         full_rule_len   = as.integer(n_cond),
         prefix_len      = as.integer(seq_len(max_d)),
-        rule_str_prefix = vapply(
-          seq_len(max_d),
-          function(d) paste(conds[1:d], collapse = " | "),
-          character(1)
-        )
+        rule_str_prefix = vapply(seq_len(max_d),
+                                 function(d) paste(conds[1:d], collapse = " | "),
+                                 character(1))
       )
-    }
-  }, by = row_id]
-
-  R_anchor[, row_id := NULL]
-
+  }, by = rule_str][, rule_str := NULL]
 
   if (!nrow(prefix_universe)) {
-    warning(sprintf(
-      "[%s] no prefixes generated from anchor rules (check inputs).",
-      FUN
-    ))
-    return(invisible(NULL))
+    warning(sprintf("[%s] no prefixes generated from anchor rules (check inputs).", FUN))
+    return(list(prefixes = NULL, full = anchor_tbl[], map = NULL))
   }
 
-  # One row per unique prefix; add a little context about how often it appears
   prefix_list <- prefix_universe[, .(
     n_full_rules_with_prefix = data.table::uniqueN(rule_str_full),
     min_full_rule_len        = min(full_rule_len),
-    max_full_rule_len        = max(full_rule_len),
-    example_full_rule        = rule_str_full[1]
+    max_full_rule_len        = max(full_rule_len)
   ), by = .(prefix_len, rule_str_prefix)]
 
-  data.table::setorderv(
-    prefix_list,
-    cols  = c("prefix_len", "n_full_rules_with_prefix"),
-    order = c(1L,-1L)
+  data.table::setorderv(prefix_list,
+                        cols  = c("prefix_len", "n_full_rules_with_prefix"),
+                        order = c(1L, -1L))
+
+  want_prefix <- unique(prefix_list[, .(prefix_len, rule_str_prefix)])
+  want_prefix[, prefix_len := as.integer(prefix_len)]
+
+  pairs_by_prefix <- .map_prefixes_to_leaves(
+    want_prefix      = want_prefix,
+    leaf_paths       = leaf_paths,
+    harvest_bins     = harvest_bins,
+    max_depth        = max_depth,
+    tighten_monotone = tighten_monotone,
+    proper_only      = TRUE
   )
+
 
   # Pre-allocate container for results (one per unique prefix)
   out <- vector("list", nrow(prefix_list))
@@ -155,31 +184,37 @@ analyze_rule_depth <- function(boosted,
 
     # All (Tree, leaf_id) pairs whose rule_str starts with this prefix
     sub <-
-      pairs_all[substr(rule_str, 1L, nchar(prefix_str)) == prefix_str,
-                .(Tree, leaf_id)]
+      pairs_by_prefix[.(prefix_list$prefix_len[i], prefix_str), .(Tree, leaf_id)]
+
     if (!nrow(sub)) {
       next
     }
-    sub <- unique(sub)
 
     pref_buckets <- .snp_lookup(
       pairs            = sub,
-      snps_ext_by_leaf = snps_ext_by_leaf,
-      snps_bg_by_leaf  = snps_bg_by_leaf,
       snps_all_by_leaf = snps_all_by_leaf
     )
-    bucket_ext <- pref_buckets$bucket_ext
-    bucket_bg  <- pref_buckets$bucket_bg
     bucket_all <- pref_buckets$bucket_all
 
-    n_e <- length(bucket_ext)
-    n_b <- length(bucket_bg)
+    # Restrict bucket to fold_indices
+    if (length(bucket_all)) {
+      bucket_all <- bucket_all[in_fold[bucket_all]]
+    }
+    n_all_rule <- length(bucket_all)
+    if (!n_all_rule) next
 
-    support   <- n_e + n_b
-    precision <- n_e / pmax(1e-12, support)
+    # Counts: how many extreme vs background SNPs the prefix captures
+    # (fold-restricted)
+    n_e <- sum(is_extreme[bucket_all])
+    n_b <- sum(is_bg[bucket_all])
+    support     <- n_e + n_b  # labeled support
+    support_all <- n_all_rule # total support (labeled + unlabeled)
+
+    # Performance metrics
+    precision   <- n_e / pmax(1e-12, support)
     recall <-
-      if (N_extr_train > 0L)
-        n_e / N_extr_train
+      if (N_extr > 0L)
+        n_e / N_extr
     else
       NA_real_
     lift <- if (base_rate > 0)
@@ -187,54 +222,57 @@ analyze_rule_depth <- function(boosted,
     else
       NA_real_
 
+    # Optional beta–binomial smoothing (selection stability)
+    precision_shrink <- NA_real_
+    lift_shrink <- NA_real_
+    if (is.numeric(shrink_m) && shrink_m > 0 && !is.na(base_rate) && base_rate > 0) {
+      m <- as.numeric(shrink_m)
+      precision_shrink <- (n_e + m * base_rate) / (support + m)
+      lift_shrink <- precision_shrink / base_rate
+    }
+
+    # Medians of yvars under this prefix (fold-restricted)
+    bucket_ext <- if (n_e) bucket_all[is_extreme[bucket_all]] else integer()
+    bucket_bg  <- if (n_b) bucket_all[is_bg[bucket_all]] else integer()
+
+    med_e <- if (length(bucket_ext)) median(yvar[bucket_ext], na.rm = TRUE) else NA_real_
+    med_b <- if (length(bucket_bg)) median(yvar[bucket_bg], na.rm = TRUE) else NA_real_
+    med_o <- if (length(bucket_all)) median(yvar[bucket_all], na.rm = TRUE) else NA_real_
+
+    # Rule-level LLRs with Jeffreys smoothing on contingency counts
     enrichment <- .rule_llr(
       n_extreme    = n_e,
       n_bg         = n_b,
-      N_extr_total = N_extr_train,
-      N_bg_total   = N_bg_train,
+      N_extr_total = N_extr,
+      N_bg_total   = N_bg,
       alpha        = alpha
     )
-
-    # yvar medians under this prefix (extreme/background/all SNPs)
-    med_e <- if (!is.null(y_num) && n_e) {
-      median(y_num[bucket_ext], na.rm = TRUE)
-    } else {
-      NA_real_
-    }
-    med_b <- if (!is.null(y_num) && n_b) {
-      median(y_num[bucket_bg], na.rm = TRUE)
-    } else {
-      NA_real_
-    }
-    med_o <-
-      if (!is.null(y_num) && length(bucket_all) > 0L) {
-        median(y_num[bucket_all], na.rm = TRUE)
-      } else {
-        NA_real_
-      }
 
     out[[rr]] <- data.table::data.table(
       rule_str_prefix = prefix_str,
       prefix_len      = as.integer(prefix_list$prefix_len[i]),
 
-      n_extreme_prefix = as.integer(n_e),
-      n_bg_prefix      = as.integer(n_b),
-      support_prefix   = as.integer(support),
+      n_extreme   = as.integer(n_e),
+      n_bg        = as.integer(n_b),
+      support     = as.integer(support),
+      support_all = as.integer(support_all),
 
-      enrichment_prefix = as.numeric(enrichment),
-      precision_prefix  = as.numeric(precision),
-      recall_prefix     = as.numeric(recall),
-      lift_prefix       = as.numeric(lift),
+      enrichment = as.numeric(enrichment),
+      precision  = as.numeric(precision),
+      recall     = as.numeric(recall),
+      lift       = as.numeric(lift),
 
-      med_y_extreme = med_e,
-      med_y_bg      = med_b,
-      med_y_overall = med_o,
+      precision_shrink = as.numeric(precision_shrink),
+      lift_shrink      = as.numeric(lift_shrink),
+
+      med_y_extreme = as.numeric(med_e),
+      med_y_bg      = as.numeric(med_b),
+      med_y_overall = as.numeric(med_o),
 
       # Context: how often this prefix occurs among anchor rules
-      n_full_rules_with_prefix = as.integer(prefix_list$n_full_rules_with_prefix[i]),
+      n_rules_with_prefix      = as.integer(prefix_list$n_full_rules_with_prefix[i]),
       min_full_rule_len        = as.integer(prefix_list$min_full_rule_len[i]),
-      max_full_rule_len        = as.integer(prefix_list$max_full_rule_len[i]),
-      example_full_rule        = as.character(prefix_list$example_full_rule[i])
+      max_full_rule_len        = as.integer(prefix_list$max_full_rule_len[i])
     )
     rr <- rr + 1L
 
@@ -250,17 +288,30 @@ analyze_rule_depth <- function(boosted,
     }
   }
 
-  res <-
-    data.table::rbindlist(out, use.names = TRUE, fill = TRUE)
+  if (rr == 1L) {
+    warning(sprintf("[%s] no results generated (check inputs).", FUN))
+    return(list(prefixes = NULL, full = R_anchor[], map = prefix_universe[]))
+  }
+  out <- out[seq_len(rr - 1L)]
+
+  res <- data.table::rbindlist(out, use.names = TRUE, fill = TRUE)
+  res <- .drop_all_na_cols(res)
+
   if (!nrow(res)) {
     warning(sprintf("[%s] no prefix diagnostics generated (check inputs).", FUN))
-    return(invisible(NULL))
+    return(list(prefixes = NULL, full = R_anchor[], map = prefix_universe[]))
   }
 
   data.table::setorderv(
     res,
-    cols  = c("prefix_len", "enrichment_prefix", "support_prefix"),
-    order = c(1L,-1L,-1L)
+    cols  = c("prefix_len", "enrichment", "support"),
+    order = c(1L, -1L, -1L)
   )
-  res[]
+
+  # Return list with prefixes + full rules + per-full prefix map
+  list(
+    prefixes = res[],
+    full     = R_anchor[],
+    map      = prefix_universe[]
+  )
 }

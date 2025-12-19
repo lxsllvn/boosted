@@ -16,9 +16,9 @@
 harvest_rules <- function(boosted,
                           max_depth        = 5L,
                           min_support      = 20L,
-                          trees_subset     = NULL,
                           trees_per_batch  = 250L,
                           progress_every   = NULL,
+                          trees_subset     = NULL,
                           tighten_monotone = TRUE,
                           return_ledger    = TRUE) {
   # Signature & basic checks
@@ -48,17 +48,26 @@ harvest_rules <- function(boosted,
   N_bg_train     <- boosted$N_bg_train
   n_yvar_train   <- boosted$n_yvar_train
 
-  train_leaf_map <- boosted$train_leaf_map
-  dense_leaf_ids <- train_leaf_map$dense_leaf_ids
-  native_ids_all <- train_leaf_map$native_leaf_ids
-  n_leaves       <- as.integer(train_leaf_map$n_leaves)
+  # Pull native and dense leaf IDs
+  dense_leaf_ids <- boosted$train_leaf_map$dense_leaf_ids
+  native_ids_all <- boosted$train_leaf_map$native_leaf_ids
+  n_leaves       <- as.integer(boosted$train_leaf_map$n_leaves)
+
+  # Pull per-tree leaf → SNP maps; reused for all rules and prefixes.
+  snps_all_by_leaf <- boosted$snps_all_by_leaf_train
 
   # Feature bins
   bin_spec <- boosted$harvest_bins
 
-  # Base rate & optional yvar (for medians)
+  # Base rate & yvar for medians
   base_rate <- boosted$base_rate_train
-  y_num     <- boosted$yvar_train
+  yvar      <- boosted$yvar_train
+
+  # Membership vectors for fast counting within buckets
+  is_extreme <- rep(FALSE, n_yvar_train)
+  is_bg      <- rep(FALSE, n_yvar_train)
+  is_extreme[extr_idx_train] <- TRUE
+  is_bg[bg_idx_train]        <- TRUE
 
   # -----------------------------------
   # Step 1: turn leaf-level paths + bins into canonical rule strings
@@ -211,27 +220,10 @@ harvest_rules <- function(boosted,
   # Step 3: pool SNPs under each unique rule and evaluate enrichment
   # -----------------------------------
 
-  # Build per-tree leaf → SNP maps, reused for all rules and prefixes.
-  # For each tree tt and native leaf_id:
-  # snps_ext_by_leaf[[tt]][[leaf_id]] = extreme SNP indices
-  # snps_bg_by_leaf [[tt]][[leaf_id]] = background SNP indices
-  # snps_all_by_leaf[[tt]][[leaf_id]] = all SNP indices (labeled + unlabeled)
-  lookup <- .build_lookup(
-    dense_leaf_ids  = dense_leaf_ids,
-    native_leaf_ids = native_ids_all,
-    extr_idx        = extr_idx_train,
-    bg_idx          = bg_idx_train,
-    all             = TRUE
-  )
-  snps_ext_by_leaf <- lookup$snps_ext_by_leaf
-  snps_bg_by_leaf  <- lookup$snps_bg_by_leaf
-  snps_all_by_leaf <- lookup$snps_all_by_leaf
-
   # Identify unique rule strings across trees
   uniq_rules <- sort(unique(pairs_all$rule_str))
   # Pre-allocate container for pooled rule-level summaries
   pooled     <- vector("list", length(uniq_rules))
-
 
   progress_every_rules <- if (!is.null(progress_every) && progress_every > 0L) {
     as.integer(10L * progress_every)
@@ -249,17 +241,13 @@ harvest_rules <- function(boosted,
     # Look up SNP indices under this rule via the per-tree lookup
     buckets <- .snp_lookup(
       pairs            = pairs,
-      snps_ext_by_leaf = snps_ext_by_leaf,
-      snps_bg_by_leaf  = snps_bg_by_leaf,
       snps_all_by_leaf = snps_all_by_leaf
     )
-    bucket_ext <- buckets$bucket_ext
-    bucket_bg  <- buckets$bucket_bg
     bucket_all <- buckets$bucket_all
 
     # Compute how many extreme vs background SNPs the rule captures
-    n_e         <- length(bucket_ext)
-    n_b         <- length(bucket_bg)
+    n_e <- sum(is_extreme[bucket_all])
+    n_b <- sum(is_bg[bucket_all])
     support     <- n_e + n_b          # labeled support
     support_all <- length(bucket_all) # total support (labeled + unlabeled)
 
@@ -288,20 +276,14 @@ harvest_rules <- function(boosted,
     )
 
     # Optional: include median of yvar in output tables
-    med_e <- if (!is.null(y_num) && n_e) {
-      median(y_num[bucket_ext], na.rm = TRUE)
-    } else
-      NA_real_
+    # Medians of yvars under this rule (fold-restricted)
+    bucket_ext <- if (n_e) bucket_all[is_extreme[bucket_all]] else integer()
+    bucket_bg  <- if (n_b) bucket_all[is_bg[bucket_all]] else integer()
 
-    med_b <- if (!is.null(y_num) && n_b) {
-      median(y_num[bucket_bg], na.rm = TRUE)
-    } else
-      NA_real_
+    med_e <- if (length(bucket_ext)) median(yvar[bucket_ext], na.rm = TRUE) else NA_real_
+    med_b <- if (length(bucket_bg)) median(yvar[bucket_bg], na.rm = TRUE) else NA_real_
+    med_o <- if (length(bucket_all)) median(yvar[bucket_all], na.rm = TRUE) else NA_real_
 
-    med_o <- if (!is.null(y_num) && support_all > 0L) {
-      median(y_num[bucket_all], na.rm = TRUE)
-    } else
-      NA_real_
 
     # Compute rule length from rule string
     rl <- length(strsplit(rs, " \\| ", fixed = FALSE)[[1]])

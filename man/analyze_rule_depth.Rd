@@ -7,14 +7,16 @@
 analyze_rule_depth(
   boosted,
   harvest,
-  max_depth = NULL,
-  top_n = 1000L,
-  progress_every = NULL,
-  alpha = 0.5
+  candidate_rules,
+  which = c("train", "test"),
+  shrink_m = 0,
+  alpha = 0.5,
+  fold_indices = NULL,
+  progress_every = NULL
 )
 }
 \arguments{
-\item{alpha}{}
+\item{progress_every}{}
 }
 \description{
 Title
