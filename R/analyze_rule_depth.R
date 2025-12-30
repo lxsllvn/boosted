@@ -32,16 +32,10 @@ analyze_rule_depth <- function(boosted,
       FUN
     ))
   }
-  if (!inherits(boosted, "boosted_binned")) {
-    stop(sprintf(
-      "[%s] boosted is not ready; run prepare_harvest() first.",
-      FUN
-    ))
-  }
   if (!inherits(harvest, "boosted_harvest")) {
     stop(
       sprintf(
-        "[%s] harvest must be the object returned by harvest/validate_rules(..., return_ledger = TRUE).",
+        "[%s] harvest must have ledger (harvest$pairs_all) created by harvest_rules(...) or validate_rules(..., return_ledger = TRUE).",
         FUN
       )
     )
@@ -69,7 +63,6 @@ analyze_rule_depth <- function(boosted,
     unique(candidate_rules[!is.na(candidate_rules)])
   candidate_rules <-
     candidate_rules[nzchar(trimws(candidate_rules))]
-
   if (!length(candidate_rules)) {
     stop(sprintf("[%s] candidate_rules is empty.",
                  FUN))
@@ -112,8 +105,8 @@ analyze_rule_depth <- function(boosted,
   is_extreme[extr_idx] <- TRUE
   is_bg[bg_idx]        <- TRUE
 
-  # Harvest ledger pieces: rule table (R) and metadata
-  R_tbl            <- data.table::as.data.table(harvest$R)
+  # Harvest ledger pieces: (Tree, leaf_id, rule_str) mapping and metadata
+  pairs_all        <- data.table::as.data.table(harvest$pairs_all)
   max_depth        <- as.integer(harvest$meta$max_depth)
   tighten_monotone <- isTRUE(harvest$meta$tighten_monotone)
 
@@ -122,12 +115,13 @@ analyze_rule_depth <- function(boosted,
     stop("[analyze_rule_depth] harvest$meta$max_depth must be a positive integer")
   }
 
-  anchor_tbl <- R_tbl[rule_str %chin% candidate_rules]
+  anchor_rules <- pairs_all[rule_str %in% candidate_rules]
+  rm(pairs_all)
+
   if (!nrow(anchor_tbl)) {
-    stop(sprintf("[%s] No candidate_rules matched harvest$R$rule_str.", FUN))
+    stop(sprintf("[%s] No candidate_rules matched harvest$pairs_all$rule_str.", FUN))
   }
-  anchor_tbl <- unique(anchor_tbl, by = "rule_str")
-  rm(R_tbl)
+  anchor_tbl <- unique(anchor_rules, by = "rule_str")
 
   prefix_universe <- anchor_tbl[, {
     rs_full <- rule_str[1L]
@@ -148,7 +142,7 @@ analyze_rule_depth <- function(boosted,
 
   if (!nrow(prefix_universe)) {
     warning(sprintf("[%s] no prefixes generated from anchor rules (check inputs).", FUN))
-    return(list(prefixes = NULL, full = anchor_tbl[], map = NULL))
+    return(list(prefixes = NULL, pairs_all = pairs_all[], map = NULL))
   }
 
   prefix_list <- prefix_universe[, .(
@@ -172,6 +166,17 @@ analyze_rule_depth <- function(boosted,
     tighten_monotone = tighten_monotone,
     proper_only      = TRUE
   )
+
+  # Add prefix (Tree, leaf_id, rule_str) to candidate rule ledger for reuse
+  pairs_all <- data.table::rbindlist(
+    list(
+      anchor_rules[, .(rule_str, Tree, leaf_id, rule_len)],
+      pairs_by_prefix[, .(rule_str = rule_str_prefix, Tree, leaf_id, rule_len = prefix_len)]
+    ),
+    use.names = TRUE
+  )
+  pairs_all <- unique(pairs_all, by = c("rule_str", "Tree", "leaf_id"))
+  data.table::setkey(pairs_all, rule_str)
 
 
   # Pre-allocate container for results (one per unique prefix)
@@ -290,28 +295,34 @@ analyze_rule_depth <- function(boosted,
 
   if (rr == 1L) {
     warning(sprintf("[%s] no results generated (check inputs).", FUN))
-    return(list(prefixes = NULL, full = R_anchor[], map = prefix_universe[]))
+    return(list(prefixes = NULL, pairs_all = pairs_all[], map = prefix_universe[]))
   }
   out <- out[seq_len(rr - 1L)]
 
-  res <- data.table::rbindlist(out, use.names = TRUE, fill = TRUE)
-  res <- .drop_all_na_cols(res)
+  R_tbl <- data.table::rbindlist(out, use.names = TRUE, fill = TRUE)
+  R_tbl <- .drop_all_na_cols(R_tbl)
 
-  if (!nrow(res)) {
+  if (!nrow(R_tbl)) {
     warning(sprintf("[%s] no prefix diagnostics generated (check inputs).", FUN))
-    return(list(prefixes = NULL, full = R_anchor[], map = prefix_universe[]))
+    return(list(prefixes = NULL, pairs_all = pairs_all[], map = prefix_universe[]))
   }
 
   data.table::setorderv(
-    res,
+    R_tbl,
     cols  = c("prefix_len", "enrichment", "support"),
     order = c(1L, -1L, -1L)
   )
 
-  # Return list with prefixes + full rules + per-full prefix map
-  list(
-    prefixes = res[],
-    full     = R_anchor[],
-    map      = prefix_universe[]
+  # Return list with prefix results, ledger with appended prefixes, prefix-full rule map,
+  # and harvest metadata
+  out <- list(
+    R         = R_tbl[],
+    pairs_all = pairs_all[],
+    meta      = list(max_depth        = max_depth,
+                     tighten_monotone = tighten_monotone),
+    map       = prefix_universe[]
   )
+  # Tag as a rule-harvest ledger without interfering with other list-based tools
+  class(out) <- c("boosted_prefixes", "boosted_harvest", class(out))
+  return(out)
 }
