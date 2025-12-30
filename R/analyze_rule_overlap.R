@@ -35,10 +35,11 @@ analyze_rule_overlap <- function(boosted,
     stop(sprintf("[%s] boosted is not ready; run prepare_harvest() first.",
                  FUN))
   }
-  if (!inherits(harvest, "boosted_harvest")) {
+  ok <- inherits(harvest, c("boosted_harvest", "boosted_prefixes"))
+  if (!ok) {
     stop(
       sprintf(
-        "[%s] harvest must be the object returned by harvest/validate_rules(..., return_ledger = TRUE).",
+        "[%s] harvest must have rule ledger (harvest$pairs_all) from harvest_rules(...), validate_rules(..., return_ledger = TRUE), or analyze_rule_depth(),",
         FUN
       )
     )
@@ -111,24 +112,23 @@ analyze_rule_overlap <- function(boosted,
   is_extreme[extr_idx] <- TRUE
   is_bg[bg_idx]        <- TRUE
 
-  # Harvest ledger pieces: rule table + mapping from rules to (Tree, leaf_id)
-  R_tbl     	     <- data.table::as.data.table(harvest$R)
+  # Harvest ledger pieces: (Tree, leaf_id, rule_str) mapping and
+  # metadata
   pairs_tbl 	     <- data.table::as.data.table(harvest$pairs_all)
   max_depth        <- as.integer(harvest$meta$max_depth)
   tighten_monotone <- isTRUE(harvest$meta$tighten_monotone)
 
-  # Full rules among candidate_rules
-  R_tbl <- R_tbl[rule_str %chin% candidate_rules]
-
-  # Keep what we already have mapped in the ledger for these candidate strings
+  # Filter ledger by candidate rules
   pairs_have <-
     pairs_tbl[rule_str %chin% candidate_rules, .(rule_str, Tree, leaf_id)]
+  # Identify any rules in candidate_rules that aren't in pairs_tbl
   missing_rules <-
     setdiff(candidate_rules, unique(pairs_have$rule_str))
 
   # Default: what we have
   pairs_all <- pairs_have
 
+  # Get (Tree, leaf_id, rule_str) mappings for any rules missing from pairs_tbl
   if (length(missing_rules)) {
     want_prefix <-
       data.table::data.table(rule_str_prefix = missing_rules)
@@ -167,7 +167,6 @@ analyze_rule_overlap <- function(boosted,
     return(
       list(
         overlap  = data.table::data.table(),
-        summary  = data.table::data.table(),
         rule_ids = rule_ids,
         jaccard_ext = NULL,
         jaccard_bg  = NULL,
@@ -188,6 +187,13 @@ analyze_rule_overlap <- function(boosted,
   n_all <- integer(K)
   n_ext <- integer(K)
   n_bg  <- integer(K)
+
+  # Map global SNP index -> element id within the A/B universes (1..N_extr / 1..N_bg)
+  map_ext <- integer(n_tot); map_ext[extr_idx] <- seq_along(extr_idx)
+  map_bg  <- integer(n_tot); map_bg[bg_idx]    <- seq_along(bg_idx)
+
+  A_sets <- vector("list", K)
+  B_sets <- vector("list", K)
 
   # Compute metrics per prefix
   for (k in seq_len(K)) {
@@ -211,12 +217,21 @@ analyze_rule_overlap <- function(boosted,
     # Split buckets into extreme/background subsets (fold-restricted)
     # Needed for tcrossprod-based intersections
     if (length(b)) {
-      bucket_ext[[k]] <- b[is_extreme[b]]
-      bucket_bg[[k]]  <- b[is_bg[b]]
-    } else {
-      bucket_ext[[k]] <- integer(0)
-      bucket_bg[[k]]  <- integer(0)
-    }
+      a <- b[is_extreme[b]]
+      g <- b[is_bg[b]]
+
+      bucket_ext[[k]] <- a
+      bucket_bg[[k]]  <- g
+
+      # convert global SNP indices to consecutive element IDs for MILP
+      A_sets[[k]] <- map_ext[a]
+      B_sets[[k]] <- map_bg[g]
+      } else {
+        bucket_ext[[k]] <- integer(0)
+        bucket_bg[[k]]  <- integer(0)
+        A_sets[[k]] <- integer(0)
+        B_sets[[k]] <- integer(0)
+        }
 
     # Optional progress over rule buckets
     if (!is.null(progress_every) && progress_every > 0L &&
@@ -229,10 +244,6 @@ analyze_rule_overlap <- function(boosted,
   # Compute pairwise intersections in compiled code via sparse incidence
   # matrices and tcrossprod(). This replaces the O(K^2) pairwise
   # set-intersection loops.
-  #
-  # Note: SNP indices in buckets_* are row positions in the train/test leaf
-  # matrices, so they are not contiguous. We remap them to a compact 1..N_used
-  # index first.
 
   # Build a compact SNP universe over the selected rules (all buckets)
   snps_universe <-
@@ -259,12 +270,10 @@ analyze_rule_overlap <- function(boosted,
              ncol = K,
              dimnames = list(labs, labs))
 
-    summary_tbl <- data.table::data.table()
     overlap_tbl <- data.table::data.table()
 
     return(
       list(
-        summary     = summary_tbl[],
         jaccard_ext = J_ext,
         jaccard_bg  = J_bg,
         jaccard_all = J_all,
@@ -273,7 +282,9 @@ analyze_rule_overlap <- function(boosted,
       )
     )
   } else {
-    # Remap each bucket to 1..N_used (based on snps_universe)
+    # SNP indices in buckets_* are row positions in the train/test leaf
+    # matrices, so they are not contiguous. We remap them to a compact 1..N
+    # index first.
     buckets_all_m <-
     lapply(bucket_all, function(b)
         match(b, snps_universe))
@@ -443,101 +454,22 @@ analyze_rule_overlap <- function(boosted,
     }
   }
 
-  # Performance metrics
-  precision <- n_ext / pmax(1e-12, (n_ext + n_bg))
-  recall <- if (N_extr > 0L)
-    n_ext / N_extr
-  else
-    rep(NA_real_, K)
-  lift <-
-    if (!is.na(base_rate) &&
-        base_rate > 0)
-      precision / base_rate
-  else
-    rep(NA_real_, K)
-
-  # Optional beta–binomial smoothing (selection stability)
-  precision_shrink <- rep(NA_real_, K)
-  lift_shrink      <- rep(NA_real_, K)
-  if (is.numeric(shrink_m) &&
-      shrink_m > 0 && !is.na(base_rate) && base_rate > 0) {
-    m <- as.numeric(shrink_m)
-    precision_shrink <-
-      (n_ext + m * base_rate) / (pmax(1e-12, (n_ext + n_bg)) + m)
-    lift_shrink      <- precision_shrink / base_rate
-  }
-
-  # Build summary table: start with R_tbl (may exclude prefixes), then fill
-  # missing rows
-  summary_tbl <-
-    R_tbl[, .(
-      rule_str,
-      rule_len,
-      n_extreme,
-      n_bg,
-      support,
-      support_all,
-      precision,
-      recall,
-      lift,
-      enrichment,
-      med_y_extreme,
-      med_y_bg,
-      med_y_overall
-    )]
-
-  # Add rows for rules without summaries (e.g., prefixes) using fold-evaluated
-  # counts
-  have_sum <- summary_tbl$rule_str
-  miss_sum <- setdiff(rule_ids, have_sum)
-
-  if (length(miss_sum)) {
-    add <- data.table::data.table(
-      rule_str    = rule_ids,
-      rule_len    = vapply(strsplit(rule_ids, " | ", fixed = TRUE), length, integer(1)),
-      n_extreme   = as.integer(n_ext),
-      n_bg        = as.integer(n_bg),
-      support     = as.integer(n_ext + n_bg),
-      support_all = as.integer(n_all),
-      precision   = as.numeric(precision),
-      recall      = as.numeric(recall),
-      lift        = as.numeric(lift),
-      enrichment  = as.numeric(NA_real_),
-      med_y_extreme = as.numeric(NA_real_),
-      med_y_bg      = as.numeric(NA_real_),
-      med_y_overall = as.numeric(NA_real_)
-    )[rule_str %chin% miss_sum]
-
-    summary_tbl <-
-      data.table::rbindlist(list(summary_tbl, add),
-                            use.names = TRUE,
-                            fill = TRUE)
-  }
-
-  # Attach smoothed columns (always present, may be NA)
-  data.table::setkey(summary_tbl, rule_str)
-  tmp_sm <- data.table::data.table(
-    rule_str = rule_ids,
-    precision_shrink = precision_shrink,
-    lift_shrink      = lift_shrink
-  )
-  data.table::setkey(tmp_sm, rule_str)
-  summary_tbl <- summary_tbl[tmp_sm, on = "rule_str"]
-  data.table::setorderv(summary_tbl, c("lift", "precision"), c(-1L,-1L))
-
-  summary_tbl <- .drop_all_na_cols(summary_tbl)
   overlap_tbl <- .drop_all_na_cols(overlap_tbl)
 
   list(
-    summary     = summary_tbl[],
     overlap     = overlap_tbl[],
     rule_ids    = rule_ids,
     jaccard_ext = J_ext,
     jaccard_bg  = J_bg,
     jaccard_all = J_all,
+    sets        = list(
+      A_sets = A_sets,
+      B_sets = B_sets,
+      A_n    = length(extr_idx),
+      B_n    = length(bg_idx)),
     meta        = list(
       which       = which,
-      fold_n_all  = length(n_tot),
+      fold_n_all  = n_tot,
       fold_n_extr = N_extr,
       fold_n_bg   = N_bg,
       base_rate   = base_rate,
