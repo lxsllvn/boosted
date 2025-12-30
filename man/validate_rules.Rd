@@ -7,14 +7,18 @@
 validate_rules(
   boosted,
   harvest,
-  candidate_rules = NULL,
+  which = c("train", "test"),
   min_support = 1L,
+  shrink_m = 0,
+  candidate_rules = NULL,
+  fold_indices = NULL,
+  compute_pq = NULL,
   progress_every = NULL,
-  return_ledger = TRUE
+  return_ledger = FALSE
 )
 }
 \arguments{
-\item{return_ledger}{}
+\item{compute_pq}{}
 }
 \description{
 Title

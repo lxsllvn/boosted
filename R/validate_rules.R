@@ -26,7 +26,7 @@ validate_rules <- function(boosted,
                            fold_indices    = NULL,
                            compute_pq      = NULL,
                            progress_every  = NULL,
-                           return_ledger   = TRUE) {
+                           return_ledger   = FALSE) {
   # Signature & basic checks
   FUN <- "validate_rules"
   message(sprintf("[%s] start: %s", FUN, format(Sys.time(), "%Y-%m-%d %H:%M:%S")))
@@ -90,7 +90,8 @@ validate_rules <- function(boosted,
 
   # Harvested rules
   pairs_all_ledger <- data.table::as.data.table(harvest$pairs_all)
-  rule_meta_tbl    <- data.table::as.data.table(harvest$R[, .(rule_str, rule_len)])
+  rule_meta_tbl    <- unique(pairs_all_ledger[, .(rule_str, rule_len)], by = "rule_str")
+  data.table::setkey(rule_meta_tbl, rule_str)
 
   # Harvest metadata
   max_depth        <- harvest$meta$max_depth
@@ -131,7 +132,7 @@ validate_rules <- function(boosted,
   if (!nrow(pairs_all)) {
     warning(
       sprintf(
-        "[%s] none of the candidate rules were found in harvest_ledger$pairs_all.",
+        "[%s] none of the candidate rules were found in harvest$pairs_all.",
         FUN
       )
     )

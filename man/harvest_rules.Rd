@@ -6,17 +6,16 @@
 \usage{
 harvest_rules(
   boosted,
-  max_depth = 5L,
   min_support = 20L,
-  trees_subset = NULL,
   trees_per_batch = 250L,
+  max_depth = NULL,
   progress_every = NULL,
-  tighten_monotone = TRUE,
-  return_ledger = TRUE
+  trees_subset = NULL,
+  tighten_monotone = TRUE
 )
 }
 \arguments{
-\item{return_ledger}{}
+\item{tighten_monotone}{}
 }
 \description{
 Title

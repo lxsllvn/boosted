@@ -7,24 +7,21 @@
 #' @param trees_per_batch
 #' @param progress_every
 #' @param tighten_monotone
-#' @param return_ledger
 #'
 #' @return
 #' @export
 #'
 #' @examples
 harvest_rules <- function(boosted,
-                          max_depth        = 5L,
                           min_support      = 20L,
                           trees_per_batch  = 250L,
+                          max_depth        = NULL,
                           progress_every   = NULL,
                           trees_subset     = NULL,
-                          tighten_monotone = TRUE,
-                          return_ledger    = TRUE) {
+                          tighten_monotone = TRUE) {
   # Signature & basic checks
   FUN <- "harvest_rules"
   message(sprintf("[%s] start: %s", FUN, format(Sys.time(), "%Y-%m-%d %H:%M:%S")))
-
   if (!inherits(boosted, "boosted")) {
     stop(
       sprintf(
@@ -40,12 +37,33 @@ harvest_rules <- function(boosted,
     ))
   }
 
+  # If max_depth is provided, check if it's an integer <= boosted$max_depth
+  model_md <- as.integer(boosted$max_depth)
+
+  if (is.null(max_depth)) {
+    max_depth <- model_md
+  } else {
+    bad <- length(max_depth) != 1L ||
+      !is.numeric(max_depth) ||
+      is.na(max_depth) ||
+      !is.finite(max_depth) ||
+      max_depth != as.integer(max_depth) ||
+      max_depth < 1L ||
+      max_depth > model_md
+
+    if (bad) {
+      stop(sprintf(
+        "[%s] max_depth must be a single finite integer in [1, %d].",
+        FUN, model_md
+      ))
+    }
+    max_depth <- as.integer(max_depth)
+  }
+
   # Pull train data from boosted
   Tm             <- boosted$Tm
   extr_idx_train <- boosted$extr_idx_train
   bg_idx_train   <- boosted$bg_idx_train
-  N_extr_train   <- boosted$N_extr_train
-  N_bg_train     <- boosted$N_bg_train
   n_yvar_train   <- boosted$n_yvar_train
 
   # Pull native and dense leaf IDs
@@ -53,41 +71,29 @@ harvest_rules <- function(boosted,
   native_ids_all <- boosted$train_leaf_map$native_leaf_ids
   n_leaves       <- as.integer(boosted$train_leaf_map$n_leaves)
 
-  # Pull per-tree leaf → SNP maps; reused for all rules and prefixes.
-  snps_all_by_leaf <- boosted$snps_all_by_leaf_train
-
   # Feature bins
   bin_spec <- boosted$harvest_bins
 
-  # Base rate & yvar for medians
-  base_rate <- boosted$base_rate_train
-  yvar      <- boosted$yvar_train
-
-  # Membership vectors for fast counting within buckets
-  is_extreme <- rep(FALSE, n_yvar_train)
-  is_bg      <- rep(FALSE, n_yvar_train)
-  is_extreme[extr_idx_train] <- TRUE
-  is_bg[bg_idx_train]        <- TRUE
+  # Minimum labeled support
+  min_support <- as.integer(min_support)
 
   # -----------------------------------
   # Step 1: turn leaf-level paths + bins into canonical rule strings
   # and a rule-length map.
   # -----------------------------------
 
-  # Build rule strings to max_depth using precomputed leaf paths
+  # Build per-leaf rule definitions (rule_str, rule_len) for labeling leaves
   leaf_paths <- boosted$leaf_paths
-  PATHS_full <- .build_rule_strings(
+
+  PATHS <- .build_rule_strings(
     leaf_paths,
     bin_spec         = bin_spec,
     max_depth        = max_depth,
     tighten_monotone = tighten_monotone
   )
 
-  # Extract the Tree, leaf_id, and rule_str columns and key by (Tree, leaf_id)
-  # This is the map we later use to attach a rule string to each leaf.
-  PATHS <- PATHS_full[, .(Tree, leaf_id, rule_str)]
   data.table::setkey(PATHS, Tree, leaf_id)
-  rm(PATHS_full); gc()
+
 
   # Optional: restrict trees to a supplied subset (0-based indices)
   all_trees0 <- 0:(Tm - 1L)
@@ -122,7 +128,7 @@ harvest_rules <- function(boosted,
     batch_end   <- min(batch_start + trees_per_batch - 1L, length(use_tt))
 
     # Initialize container and counter
-    # - batch_pairs: (Tree, leaf_id, rule_str) records for this batch
+    # - batch_pairs: (Tree, leaf_id, rule_str, rule_len) records for this batch
     batch_pairs <- vector("list", batch_end - batch_start + 1L)
     bp <- 1L
 
@@ -138,7 +144,7 @@ harvest_rules <- function(boosted,
 
       # Filter out leaves with labeled support < min_support
       support_dense <- ce_dense + cb_dense
-      keep_dense    <- which(support_dense >= as.integer(min_support))
+      keep_dense    <- which(support_dense >= min_support)
 
       # If no leaves pass, skip this tree
       if (!length(keep_dense)) {
@@ -170,14 +176,16 @@ harvest_rules <- function(boosted,
       )
 
       # Attach rule string for each (Tree, leaf_id); drop unmapped leaves
-      J <- PATHS[DT0, on = .(Tree, leaf_id), nomatch = 0L]
+      J <-
+        PATHS[DT0, on = .(Tree, leaf_id), nomatch = 0L][, .(Tree, leaf_id, rule_str, rule_len)]
+
       if (!nrow(J)) {
         bp <- bp + 1L
         next
       }
 
       # Store which leaves fall under each rule
-      batch_pairs [[bp]]    <- J[, .(Tree, leaf_id, rule_str)]
+      batch_pairs [[bp]] <- J[, .(Tree, leaf_id, rule_str, rule_len)]
       bp <- bp + 1L
     }
 
@@ -193,13 +201,7 @@ harvest_rules <- function(boosted,
         ((batch_end %% progress_every) == 0L ||
          batch_end == length(use_tt))) {
       message(
-        sprintf(
-          "[%s] processed tree %d / %d (%.1f%%)",
-          FUN,
-          use_tt[batch_end],
-          length(use_tt),
-          100 * batch_end / length(use_tt)
-        )
+        sprintf("[%s] processed tree %d / %d", FUN, batch_end, length(use_tt))
       )
     }
   }
@@ -211,148 +213,28 @@ harvest_rules <- function(boosted,
                                      fill = TRUE)
   if (!nrow(pairs_all)) {
     stop(sprintf(
-      "[%s] no rule (Tree, leaf_id) pairs to pool after filtering.",
+      "[%s] no rule (Tree, leaf_id) after filtering.",
       FUN
     ))
   }
 
   # -----------------------------------
-  # Step 3: pool SNPs under each unique rule and evaluate enrichment
+  # Step 3: return results
   # -----------------------------------
-
-  # Identify unique rule strings across trees
-  uniq_rules <- sort(unique(pairs_all$rule_str))
-  # Pre-allocate container for pooled rule-level summaries
-  pooled     <- vector("list", length(uniq_rules))
-
-  progress_every_rules <- if (!is.null(progress_every) && progress_every > 0L) {
-    as.integer(10L * progress_every)
-  } else {
-    NULL
-  }
-
-  # Pool SNPs under each rule and compute enrichment metrics
-  for (i in seq_along(uniq_rules)) {
-    rs <- uniq_rules[i]
-    # All (Tree, leaf_id) pairs where this rule held in the ensemble
-    pairs <- unique(pairs_all[rule_str == rs, .(Tree, leaf_id)])
-    if (!nrow(pairs))
-      next
-    # Look up SNP indices under this rule via the per-tree lookup
-    buckets <- .snp_lookup(
-      pairs            = pairs,
-      snps_all_by_leaf = snps_all_by_leaf
+  out <- list(
+    pairs_all    = pairs_all[],
+    meta         = list(
+      max_depth        = max_depth,
+      tighten_monotone = tighten_monotone,
+      n_train          = n_yvar_train,
+      Tm               = Tm
     )
-    bucket_all <- buckets$bucket_all
-
-    # Compute how many extreme vs background SNPs the rule captures
-    n_e <- sum(is_extreme[bucket_all])
-    n_b <- sum(is_bg[bucket_all])
-    support     <- n_e + n_b          # labeled support
-    support_all <- length(bucket_all) # total support (labeled + unlabeled)
-
-    # Performance metrics: how well the rule enriches for extreme SNPs
-    precision <- n_e / pmax(1e-12, support)
-    recall <-
-      if (N_extr_train > 0L)
-        n_e / N_extr_train
-    else
-      NA_real_
-    lift <- if (base_rate > 0)
-      precision / base_rate
-    else
-      NA_real_
-
-    # Haldane–Anscombe corrected odds ratio (finite with zeros)
-    or_ha <- ((n_e + 0.5) * (N_bg_train - n_b + 0.5)) /
-      ((N_extr_train - n_e + 0.5) * (n_b + 0.5))
-
-    # Rule-level LLRs with Jeffreys smoothing on contingency counts
-    enrichment <- .rule_llr(
-      n_extreme    = n_e,
-      n_bg         = n_b,
-      N_extr_total = N_extr_train,
-      N_bg_total   = N_bg_train
-    )
-
-    # Optional: include median of yvar in output tables
-    # Medians of yvars under this rule (fold-restricted)
-    bucket_ext <- if (n_e) bucket_all[is_extreme[bucket_all]] else integer()
-    bucket_bg  <- if (n_b) bucket_all[is_bg[bucket_all]] else integer()
-
-    med_e <- if (length(bucket_ext)) median(yvar[bucket_ext], na.rm = TRUE) else NA_real_
-    med_b <- if (length(bucket_bg)) median(yvar[bucket_bg], na.rm = TRUE) else NA_real_
-    med_o <- if (length(bucket_all)) median(yvar[bucket_all], na.rm = TRUE) else NA_real_
-
-
-    # Compute rule length from rule string
-    rl <- length(strsplit(rs, " \\| ", fixed = FALSE)[[1]])
-
-    # Save pooled result for this rule
-    pooled[[i]] <- data.table::data.table(
-      rule_str      = rs,
-      rule_len      = as.integer(rl),
-      n_extreme     = n_e,
-      n_bg          = n_b,
-      support       = support,
-      support_all   = support_all,
-      precision     = precision,
-      recall        = recall,
-      lift          = lift,
-      odds_ratio    = or_ha,
-      enrichment    = enrichment,
-      med_y_extreme = med_e,
-      med_y_bg      = med_b,
-      med_y_overall = med_o
-    )
-
-    # Optional per-rule progress (every 10 * progress_every)
-    if (!is.null(progress_every_rules) &&
-        (i %% progress_every_rules == 0L || i == length(uniq_rules))) {
-      message(
-        sprintf(
-          "[%s] processed %d / %d rule strings (%.1f%%)",
-          FUN,
-          i,
-          length(uniq_rules),
-          100 * i / length(uniq_rules)
-        )
-      )
-    }
-  }
-
-  # -----------------------------------
-  # Step 4: prepare and return the results
-  # -----------------------------------
-
-  R_tbl <- data.table::rbindlist(pooled, use.names = TRUE, fill = TRUE)
-  if (!nrow(R_tbl)) {
-    warning(sprintf("[%s] no pooled rules.", FUN))
-    return(invisible(NULL))
-  }
-
-  # Order results
-  data.table::setorderv(
-    R_tbl,
-    cols  = c("lift", "odds_ratio", "precision", "recall"),
-    order = c(-1L,-1L,-1L,-1L)
   )
 
-  if (isTRUE(return_ledger)) {
-    out <- list(
-      R            = R_tbl[],
-      pairs_all    = pairs_all[],
-      meta         = list(max_depth        = max_depth,
-                          tighten_monotone = tighten_monotone,
-                          n_train          = n_yvar_train,
-                          Tm               = Tm
-      )
-    )
+  # Tag as a rule-harvest ledger without interfering with other list-based tools
+  class(out) <- c("boosted_harvest", class(out))
+  return(out)
 
-    # Tag as a rule-harvest ledger without interfering with other list-based tools
-    class(out) <- c("boosted_harvest", class(out))
-    return(out)
-  } else {
-    R_tbl[]
-  }
 }
+
+

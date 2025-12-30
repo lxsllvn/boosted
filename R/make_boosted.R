@@ -148,6 +148,9 @@ make_boosted <- function(model,
       trees_per_batch = 250L
     )
 
+  #Find number of splits along the deepest path
+  max_depth <- as.integer(max(leaf_paths$depth) + 1L) # zero-based to 1-based
+
   # Bundle
   boosted <- list(
     # y variables and indices
@@ -180,7 +183,8 @@ make_boosted <- function(model,
     n_yvar_test     = length(yvar_test),
     base_rate_train = idxs$N_extr_train / (idxs$N_extr_train + idxs$N_bg_train),
     base_rate_test  = idxs$N_extr_test / (idxs$N_extr_test + idxs$N_bg_test),
-    Tm              = Tm
+    Tm              = Tm,
+    max_depth       = max_depth
   )
   class(boosted) <- "boosted"
 
