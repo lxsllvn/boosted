@@ -2,14 +2,43 @@
 % Please edit documentation in R/parse_xgb_tree.R
 \name{.parse_xgb_tree}
 \alias{.parse_xgb_tree}
-\title{Title}
+\title{Parse an xgboost model text dump}
 \usage{
-.parse_xgb_tree(model, caller = ".parse_xgboost_tree")
+.parse_xgb_tree(model)
 }
 \arguments{
-\item{caller}{}
+\item{model}{object of class \code{xgb.Booster}.}
+}
+\value{
+A \code{data.table} with one row per \verb{(Tree, node)} in the \code{xgboost}
+model with columns:
+\itemize{
+\item \code{Tree}: unique integer ID denoting each tree in the model (zero-based
+index)
+\item \code{Node}: unique integer ID of each node in a given \code{Tree} (zero-based
+index).
+\item \code{Feature}: character; for decision nodes, the name of the feature used,
+whereas leaves are indicated by \code{Leaf}.
+\item \code{Split}: for decision nodes, numeric value of the split condition for
+decision nodes. \code{NA} for leaf nodes.
+\item \code{Yes}: for decision nodes, integer ID of the child node for instances
+with feature values /less than/ the split condition. \code{NA} for leaf nodes.
+\item \code{No}: for decision nodes, integer ID of the child node for instances with
+feature values /greater than or equal to/ the split condition. \code{NA} for
+leaf nodes.
+\item \code{Missing}: for decision nodes, integer ID of the child node for instances
+missing feature values. \code{NA} for leaf nodes.
+\item \code{Leaf}: logical; if \code{TRUE}, the node is a leaf. if \code{FALSE}, it is a
+decision node.
+\item \code{LeafVal}: numeric prediction value for a leaf; \code{NA} for decision nodes.
+\item \code{Gain}: loss function gain from a decision node; \code{NA} for leaf nodes.
+\item \code{Cover}: the number of instances seen by a decision node or collected by
+a leaf node.
+}
 }
 \description{
-Title
+A wrapper for \code{xgboost::xgb.model.dt.tree} that converts child-node to
+integer IDs, separates leaf prediction values and split gain into their own
+columns, and adds a Boolean distinguishing decision from leaf nodes. Used by \code{\link[=make_boosted]{make_boosted()}}.
 }
 \keyword{internal}

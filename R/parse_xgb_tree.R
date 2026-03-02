@@ -1,14 +1,50 @@
-#' Title
+#' Parse an xgboost model text dump
 #'
-#' @param model
-#' @param caller
+#' @description
+#' A wrapper for `xgboost::xgb.model.dt.tree` that converts child-node to
+#' integer IDs, separates leaf prediction values and split gain into their own
+#' columns, and adds a Boolean distinguishing decision from leaf nodes. Used by [make_boosted()].
 #'
-#' @return
+#' @param model object of class `xgb.Booster`.
+#'
+#' @return A `data.table` with one row per `(Tree, node)` in the `xgboost`
+#'   model with columns:
+#'
+#'   * `Tree`: unique integer ID denoting each tree in the model (zero-based
+#'     index)
+#'
+#'   * `Node`: unique integer ID of each node in a given `Tree` (zero-based
+#'     index).
+#'
+#'   * `Feature`: character; for decision nodes, the name of the feature used,
+#'     whereas leaves are indicated by `Leaf`.
+#'
+#'   * `Split`: for decision nodes, numeric value of the split condition for
+#'     decision nodes. `NA` for leaf nodes.
+#'
+#'   * `Yes`: for decision nodes, integer ID of the child node for instances
+#'     with feature values /less than/ the split condition. `NA` for leaf nodes.
+#'
+#'   * `No`: for decision nodes, integer ID of the child node for instances with
+#'     feature values /greater than or equal to/ the split condition. `NA` for
+#'     leaf nodes.
+#'
+#'   * `Missing`: for decision nodes, integer ID of the child node for instances
+#'     missing feature values. `NA` for leaf nodes.
+#'
+#'   * `Leaf`: logical; if `TRUE`, the node is a leaf. if `FALSE`, it is a
+#'     decision node.
+#'
+#'   * `LeafVal`: numeric prediction value for a leaf; `NA` for decision nodes.
+#'
+#'   * `Gain`: loss function gain from a decision node; `NA` for leaf nodes.
+#'
+#'   * `Cover`: the number of instances seen by a decision node or collected by
+#'     a leaf node.
 #' @keywords internal
 #'
 #' @examples
-.parse_xgb_tree <- function(model,
-                            caller = ".parse_xgboost_tree") {
+.parse_xgb_tree <- function(model) {
   dt <- xgboost::xgb.model.dt.tree(model = model)
   data.table::setDT(dt)
 
