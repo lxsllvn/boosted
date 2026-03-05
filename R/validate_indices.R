@@ -1,8 +1,8 @@
 #' Title
 #'
-#' @param caller
 #' @param idx
 #' @param n
+#' @param caller
 #' @param label
 #'
 #' @return
@@ -10,7 +10,10 @@
 #'
 #' @examples
 
-.check_idx <- function(idx, n, caller, label) {
+.check_idx <- function(idx,
+                       n,
+                       caller = ".check_idx",
+                       label) {
   if (is.null(idx))
     stop(sprintf("[%s] %s is NULL.", caller, label))
   if (length(idx) == 0L)
