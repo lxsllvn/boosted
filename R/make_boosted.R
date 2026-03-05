@@ -119,37 +119,15 @@ make_boosted <- function(model,
   rm(model, features_train, features_test)
   gc()
 
-  # Construct parent/child maps and depth/path lookup functions for tree
-  # navigation
+  # Find the maximum realized tree depth (number of of splits)
   if (isTRUE(verbose)) {
     message(sprintf(
-      "[%s] building helpers: %s",
+      "[%s] finding maximum depth: %s",
       FUN,
       format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     ))
   }
-  helpers <- .build_tree_helpers(tdt = tdt)
-
-  # Generate table of per-leaf decision paths
-  if (isTRUE(verbose)) {
-    message(sprintf(
-      "[%s] building path table: %s",
-      FUN,
-      format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-    ))
-  }
-  leaf_paths <-
-    .extract_leaf_paths(
-      native_leaf_ids = train_leaf_map$native_leaf_ids,
-      Tm              = Tm,
-      tdt             = tdt,
-      helpers         = helpers,
-      # trees_per_batch limits RAM usage
-      trees_per_batch = 250L
-    )
-
-  #Find number of splits along the deepest path
-  max_depth <- as.integer(max(leaf_paths$depth) + 1L) # zero-based to 1-based
+  max_depth <- .infer_max_depth(tdt)
 
   # Bundle
   boosted <- list(
@@ -173,10 +151,8 @@ make_boosted <- function(model,
     train_leaf_map  = train_leaf_map,
     test_leaf_map   = test_leaf_map,
 
-    # model structure and helpers
+    # model structure
     tdt             = tdt,
-    helpers         = helpers,
-    leaf_paths      = leaf_paths,
 
     # data sizes and metadata
     n_yvar_train    = length(yvar_train),
