@@ -6,19 +6,26 @@
 \usage{
 validate_rules(
   boosted,
-  harvest,
   which = c("train", "test"),
   min_support = 1L,
-  shrink_m = 0,
+  alpha = 0.5,
   candidate_rules = NULL,
   fold_indices = NULL,
-  compute_pq = NULL,
+  compute_pvals = NULL,
   progress_every = NULL,
   return_ledger = FALSE
 )
 }
 \arguments{
-\item{compute_pq}{}
+\item{which}{use the "train" or "test" data partition; "train" is used by default.}
+
+\item{fold_indices}{(optional) integer vector of SNP indices; if provided, the analysis is restricted to these SNPs. By default, all SNPs in "train" or "test" are used.}
+
+\item{compute_pvals}{(optional) if TRUE, return hypergeometric p-values under the null hypothesis that a rule enriches for extreme SNPs at the baseline rate. By default, p-values are only returned if which = "test".}
+
+\item{progress_every}{(optional) print an update message after every N evaluated rules.}
+
+\item{return_ledger}{}
 }
 \description{
 Title
