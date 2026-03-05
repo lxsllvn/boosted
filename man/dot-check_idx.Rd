@@ -4,7 +4,7 @@
 \alias{.check_idx}
 \title{Title}
 \usage{
-.check_idx(idx, n, caller, label)
+.check_idx(idx, n, caller = ".check_idx", label)
 }
 \arguments{
 \item{label}{}
