@@ -2,7 +2,7 @@
 % Please edit documentation in R/prepare_harvest.R
 \name{prepare_harvest}
 \alias{prepare_harvest}
-\title{Title}
+\title{Prepare a boosted object for rule harvesting / overlap analysis}
 \usage{
 prepare_harvest(
   boosted,
@@ -10,12 +10,46 @@ prepare_harvest(
   min_per_bin = 50L,
   winsor_prob = 0.01,
   method = c("fd", "quantile"),
-  verbose = FALSE
+  bin_weight = c("node", "leaf", "cover"),
+  verbose = FALSE,
+  max_depth = NULL,
+  tighten_monotone = TRUE
 )
 }
 \arguments{
-\item{method}{}
+\item{boosted}{boosted object from make_boosted()}
+
+\item{target_bins}{integer, target maximum number of bins per feature}
+
+\item{min_per_bin}{numeric, minimum bin mass (definition depends on bin_weight)}
+
+\item{winsor_prob}{numeric in [0,0.5), winsorization tail probability}
+
+\item{method}{one of c("fd","quantile")}
+
+\item{bin_weight}{how to weight split thresholds when building bins:
+\itemize{
+\item "node"  : each split counts equally
+\item "leaf"  : each split weighted by number of descendant leaves
+\item "cover" : each split weighted by node Cover (if present)
+}}
+
+\item{verbose}{logical}
+
+\item{max_depth}{NULL or positive integer. If NULL uses boosted$max_depth.
+Interpreted as maximum number of split-steps to include in a rule / prefix.}
+
+\item{tighten_monotone}{logical, passed to cache builder}
+}
+\value{
+boosted with harvest caches attached
 }
 \description{
-Title
+This function:
+\enumerate{
+\item builds per-tree leaf -> SNP lookup tables (train + test)
+\item builds a feature binning specification from boosted$tdt split thresholds
+\item applies binning once by adding Split_bin to boosted$tdt
+\item builds rule caches (rule_str, )
+}
 }
