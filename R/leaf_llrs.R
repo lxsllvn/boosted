@@ -116,3 +116,60 @@
     list(leaf_llrs_by_tree = leaf_llrs_by_tree)
   }
 }
+
+
+#' Title
+#'
+#' @param perm_extr
+#' @param leaf_mat
+#' @param N_extr
+#' @param N_bg
+#' @param Tm
+#' @param alpha
+#'
+#' @return
+#' @keywords internal
+#'
+#' @examples
+.leaf_llrs_fast <- function(perm_extr,
+                            leaf_mat,
+                            N_extr,
+                            N_bg,
+                            Tm,
+                            alpha = 0.5) {
+  A        <- leaf_mat$A
+  offsets  <- leaf_mat$offsets
+  Lvec     <- leaf_mat$Lvec
+
+  # Binary label vector: 1 = extreme, 0 = background
+  y <- integer(ncol(A))
+  y[perm_extr] <- 1L
+
+  # Sparse matvec replaces all Tm tabulate() calls
+  ce_all <- as.vector(A %*% y)
+  cb_all <- leaf_mat$labeled_row_sums - ce_all
+
+  # Unpack by tree and compute LLRs
+  leaf_llrs_by_tree <- vector("list", Tm)
+
+  for (t in seq_len(Tm)) {
+    rows <- seq(offsets[t] + 1L, offsets[t + 1])
+    ce   <- ce_all[rows]
+    cb   <- cb_all[rows]
+    L    <- Lvec[t]
+
+    has_any <- (ce + cb) > 0L
+    llrs    <- rep(NA_real_, L)
+
+    if (any(has_any)) {
+      denom_E <- N_extr + alpha * L
+      denom_B <- N_bg   + alpha * L
+      pE <- (ce + alpha) / denom_E
+      pB <- (cb + alpha) / denom_B
+      llrs[has_any] <- log(pE[has_any] / pB[has_any])
+    }
+    leaf_llrs_by_tree[[t]] <- llrs
+  }
+
+  list(leaf_llrs_by_tree = leaf_llrs_by_tree)
+}
