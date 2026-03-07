@@ -224,7 +224,10 @@ validate_rules <- function(boosted,
   R_tbl <- data.table::rbindlist(pooled, use.names = TRUE, fill = TRUE)
   if (!nrow(R_tbl)) {
     warning(sprintf(
-      "[%s] no pooled rules on %s (after min_support filtering).", FUN))
+      "[%s] no pooled rules on %s (after min_support filtering).",
+      FUN,
+      which
+    ))
     return(invisible(NULL))
   }
 
