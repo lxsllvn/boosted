@@ -65,7 +65,7 @@
                      Tm,
                      n)
   } else {
-    .score_snps_R(test_leaf_map,
+    .score_snps_r(test_leaf_map,
                   leaf_llrs_by_tree,
                   Tm,
                   n)
