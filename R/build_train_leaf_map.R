@@ -1,8 +1,30 @@
-#' Title
+#' Build a dense leaf map for the training partition
 #'
-#' @param train_leaves
+#' Converts a `xgboost` leaf assignment matrix (native integer leaf IDs,
+#' one column per tree) into a compact representation that supports fast
+#' tabulation in downstream scoring. For each tree, the set of unique native
+#' leaf IDs is sorted and stored; each SNP's assignment is then re-expressed
+#' as a 1-based position in that sorted set (the dense ID). This allows
+#' downstream code to use \code{tabulate()} on a contiguous integer sequence
+#' rather than on arbitrary native IDs.
 #'
-#' @return
+#' @param train_leaves Integer matrix of dimensions
+#'   \eqn{n_\text{train} \times T_m}{}, as returned by
+#'   \code{predict(model, predleaf = TRUE)}, with column \code{t} giving the
+#'   native leaf ID assigned to each training SNP by tree \code{t}.
+#'
+#' @return A named list with three elements:
+#' \describe{
+#'   \item{\code{native_leaf_ids}}{List of length \code{Tm}. Element \code{t}
+#'     is a sorted integer vector of the unique native leaf IDs observed in
+#'     tree \code{t} among the training SNPs.}
+#'   \item{\code{dense_leaf_ids}}{List of length \code{Tm}. Element \code{t}
+#'     is an integer vector of length \eqn{n_\text{train}}{} giving each
+#'     training SNP's position (1-based) within
+#'     \code{native_leaf_ids[[t]]}.}
+#'   \item{\code{n_leaves}}{Integer vector of length \code{Tm} giving the
+#'     number of unique leaves in each tree.}
+#' }
 #' @keywords internal
 #'
 #' @examples

@@ -1,17 +1,80 @@
-#' Title
+#' Assemble a `boosted` object from a trained `xgboost` model and labelled SNP index sets
 #'
-#' @param model
-#' @param features_train
-#' @param features_test
-#' @param yvar_train
-#' @param yvar_test
-#' @param extr_idx_train
-#' @param bg_idx_train
-#' @param extr_idx_test
-#' @param bg_idx_test
-#' @param verbose
+#' @description  Validates all model inputs, predicts SNP leaf assignments for test and training data, builds compact dense leaf maps for fast downstream tabulation, parses
+#' the `xgboost` tree structure into a tidy \code{data.table}, and bundles
+#' everything into a \code{boosted} object.
 #'
-#' @return
+#' The `boosted` object is the central data structure passed to all subsequent functions. An
+#' optional \code{\link{set_snp_class}} step can be run beforehand to derive
+#' the extreme and background index sets; alternatively, they can be supplied
+#' directly.
+#'
+#' Typical usage does not require manipulating any of the `boosted` elements directly, but all internal functions (prefaced by a `.`) are documented by help pages and commented code for interested users.
+#'
+#' @param model A trained object of class \code{xgb.Booster}.
+#' @param features_train Numeric matrix of feature values for the training
+#'   SNPs (\eqn{n_\text{train} \times p}{}). Column names must match
+#'   \code{model$feature_names} exactly.
+#' @param features_test Numeric matrix of feature values for the test SNPs
+#'   (\eqn{n_\text{test} \times p}{}). Must have identical column names to
+#'   \code{features_train}.
+#' @param yvar_train Numeric vector of length \eqn{n_\text{train}} containing
+#'   the response values for training SNPs.
+#' @param yvar_test Numeric vector of length \eqn{n_\text{test}} containing
+#'   the response values for test SNPs.
+#' @param extr_idx_train Integer vector of 1-based row indices into
+#'   \code{yvar_train} identifying the extreme (positive-class) training SNPs.
+#'   Must not overlap with \code{bg_idx_train}.
+#' @param bg_idx_train Integer vector of 1-based row indices into
+#'   \code{yvar_train} identifying the background (negative-class) training
+#'   SNPs. Must not overlap with \code{extr_idx_train}.
+#' @param extr_idx_test Integer vector of 1-based row indices into
+#'   \code{yvar_test} identifying the extreme test SNPs. Must not overlap with
+#'   \code{bg_idx_test}.
+#' @param bg_idx_test Integer vector of 1-based row indices into
+#'   \code{yvar_test} identifying the background test SNPs. Must not overlap
+#'   with \code{extr_idx_test}.
+#' @inheritParams .boosted_params
+#'
+#' @return An object of class \code{"boosted"}, a named list with the following
+#'   elements:
+#' \describe{
+#'   \item{\code{yvar_train}, \code{yvar_test}}{The response vectors supplied
+#'     by the caller, retained for use by sensitivity and rule analysis
+#'     functions.}
+#'   \item{\code{extr_idx_train}, \code{bg_idx_train}, \code{extr_idx_test},
+#'     \code{bg_idx_test}}{Validated and sorted integer index vectors for the
+#'     extreme and background sets in each partition.}
+#'   \item{\code{N_extr_train}, \code{N_bg_train}, \code{N_extr_test},
+#'     \code{N_bg_test}}{Integer scalars giving the cardinality of each
+#'     labelled set.}
+#'   \item{\code{N_index_train}, \code{N_index_test}}{Integer scalars: total
+#'     number of labelled SNPs in the training and test partitions,
+#'     respectively (\eqn{N_\text{extr} + N_\text{bg}}{}).}
+#'   \item{\code{train_leaves}, \code{test_leaves}}{Integer matrices of
+#'     dimensions \eqn{n \times T_m}{} containing the native xgboost leaf
+#'     assignment for every SNP in every tree.}
+#'   \item{\code{train_leaf_map}}{Named list produced by
+#'     \code{.build_train_leaf_map}: \code{native_leaf_ids} (unique leaf IDs
+#'     per tree), \code{dense_leaf_ids} (compact 1-based re-indexing for each
+#'     SNP), and \code{n_leaves} (leaf count per tree).}
+#'   \item{\code{test_leaf_map}}{Named list produced by
+#'     \code{.build_test_leaf_map}: \code{dense_leaf_ids} mapping each test
+#'     SNP to its position in the training leaf vocabulary (0 if unseen,
+#'     though unseen leaves raise an error).}
+#'   \item{\code{tdt}}{\code{data.table} with one row per \code{(Tree, node)}
+#'     produced by \code{\link[boosted]{.parse_xgb_tree}}. See that function
+#'     for the full column schema.}
+#'   \item{\code{n_yvar_train}, \code{n_yvar_test}}{Integer scalars: total
+#'     number of SNPs in each partition (labelled and unlabelled).}
+#'   \item{\code{base_rate_train}, \code{base_rate_test}}{Numeric scalars:
+#'     proportion of labelled SNPs that are extreme in each partition
+#'     (\eqn{N_\text{extr} / (N_\text{extr} + N_\text{bg})}{}).}
+#'   \item{\code{Tm}}{Integer scalar: number of trees in the model.}
+#'   \item{\code{max_depth}}{Integer scalar: maximum number of split-steps
+#'     from root to leaf observed across all trees, as inferred by
+#'     \code{.infer_max_depth}.}
+#' }
 #' @export
 #'
 #' @examples

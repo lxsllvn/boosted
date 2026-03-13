@@ -1,12 +1,18 @@
-#' Check a y vector for compatibility with an xgboost model and return center and scale
+#' Validate a y-variable vector for compatibility with a feature matrix
 #'
-#' Checks if a y-variable vector is 1) numeric with finite center, 2) has finite and positive scale, and 3) is the length expected from the feature matrix. If valid, returns the mean, median, sd, and mad of the vector. Called by `make_boosted`.
+#' @description
+#' Checks that \code{y} is numeric with a finite, positive-scale distribution
+#' and has the same length as \code{nrow(features)}. Stops with an informative
+#' error if any check fails. Called by \code{\link{make_boosted}} for both the
+#' training and test y-variables before any leaf predictions are made.
 #'
-#' @param y vector of response values used either to train or test an xgboost model
-#' @param features matrix of feature data
+#' @param y Numeric vector of response values (training or test).
+#' @param features Numeric matrix of feature values; \code{nrow(features)} must equal \code{length(y)}.
 #' @param caller an optional string to customize error messages
+#' @param caller Character scalar: name of the calling function, included in error messages. Defaults to \code{".validate_yvar"}.
 #'
-#' @return
+#' @return \code{invisible(TRUE)}, called for its side-effect of stopping on
+#'   invalid input.
 #' @keywords internal
 #'
 #' @examples

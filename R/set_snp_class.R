@@ -1,13 +1,41 @@
-#' Title
+#' Define extreme and background SNP class boundaries from training data
 #'
-#' @param yvar_train
-#' @param extreme_k
-#' @param lower_tail
-#' @param bg_band_k
-#' @param center
-#' @param scale
+#' Estimates a center and spread from \code{yvar_train} and computes fixed
+#' thresholds that partition any y-variable vector into an extreme set (a
+#' single tail beyond \code{extreme_k} standard units from center) and a
+#' background set (a symmetric band within \code{bg_band_k} standard units of
+#' center). Returns a named list containing the estimated parameters, the
+#' derived thresholds, and a reusable \code{$apply} closure. Calling
+#' \code{$apply} on the training and test y-variables separately ensures that
+#' class boundaries are always derived from training data alone.
 #'
-#' @return
+#' @param yvar_train Numeric vector of response values for the training SNPs,
+#'   used to estimate the center (\code{mu}) and spread (\code{sig}) that
+#'   define the class boundaries.
+#' @param extreme_k Positive numeric scalar. Distance from the training center
+#'   in units of \code{sig} at which the extreme set boundary is placed.
+#' @param bg_band_k Positive numeric scalar, must be less than
+#'   \code{extreme_k}. Half-width of the symmetric background band around the
+#'   training center, in units of \code{sig}. SNPs with
+#'   \eqn{|\text{y} - \mu| \le \text{bg\_band\_k} \cdot \sigma}{} fall in the
+#'   background set.
+#' @inheritParams .boosted_params
+#'
+#' @return A named list with the following elements:
+#' \describe{
+#'   \item{\code{mu}}{Numeric scalar. Estimated center of \code{yvar_train}
+#'     (mean or median according to \code{center}).}
+#'   \item{\code{sig}}{Numeric scalar. Estimated spread of \code{yvar_train}
+#'     (SD or MAD according to \code{scale}).}
+#'   \item{\code{extr_thr}}{Numeric scalar. Extreme set threshold on the
+#'     original y-scale.}
+#'   \item{\code{bg_low}, \code{bg_high}}{Numeric scalars. Lower and upper
+#'     boundaries of the background band on the original y-scale.}
+#'   \item{\code{apply}}{A function \code{function(y)} that accepts any
+#'     numeric vector and returns a list with integer vectors
+#'     \code{extr_idx} and \code{bg_idx} giving the 1-based positions of
+#'     extreme and background SNPs, respectively, using the frozen thresholds.}
+#' }
 #' @export
 #'
 #' @examples

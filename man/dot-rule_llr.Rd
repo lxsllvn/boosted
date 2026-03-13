@@ -2,14 +2,37 @@
 % Please edit documentation in R/rule_llr.R
 \name{.rule_llr}
 \alias{.rule_llr}
-\title{Title}
+\title{Compute a rule-level log-likelihood ratio with Jeffreys smoothing}
 \usage{
 .rule_llr(n_extreme, n_bg, N_extr_total, N_bg_total, alpha = 0.5)
 }
 \arguments{
-\item{alpha}{}
+\item{n_extreme}{Integer scalar: number of extreme SNPs in the rule's bucket.}
+
+\item{n_bg}{Integer scalar: number of background SNPs in the rule's bucket.}
+
+\item{N_extr_total}{Integer scalar: total number of extreme SNPs in the
+relevant partition (the denominator for \eqn{p_E}{}).}
+
+\item{N_bg_total}{Integer scalar: total number of background SNPs in the
+relevant partition (the denominator for \eqn{p_B}{}).}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}: Jeffreys-prior concentration.
+When \code{alpha = 0} a small epsilon floor is applied; see
+\code{\link{.boosted_params}}.}
+}
+\value{
+Numeric scalar: the smoothed log-likelihood ratio for the rule.
+Positive values indicate enrichment for extreme SNPs; negative values
+indicate depletion.
 }
 \description{
-Title
+Computes \eqn{\log(p_E / p_B)}{} where \eqn{p_E}{} and \eqn{p_B}{} are the
+smoothed probabilities that an extreme or background SNP (respectively) falls
+within a rule's SNP bucket. The same Jeffreys-prior scheme used in
+\code{\link{.leaf_llrs}} is applied: counts are incremented by \code{alpha}
+and denominators by \code{2 * alpha}, so that a rule capturing no labelled
+SNPs of either class returns a LLR near zero rather than \code{-Inf} or
+\code{Inf}.
 }
 \keyword{internal}

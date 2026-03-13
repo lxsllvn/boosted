@@ -1,26 +1,68 @@
-#' Prepare a boosted object for rule harvesting / overlap analysis
+#' Prepare a boosted object for rule harvesting and overlap analysis
 #'
-#' This function:
-#'   1) builds per-tree leaf -> SNP lookup tables (train + test)
-#'   2) builds a feature binning specification from boosted$tdt split thresholds
-#'   3) applies binning once by adding Split_bin to boosted$tdt
-#'   4) builds rule caches (rule_str, )
+#' Extends a \code{boosted} object with all the cached data structures needed
+#' by \code{\link{validate_rules}}, \code{\link{analyze_rule_depth}}, and
+#' \code{\link{analyze_rule_overlap}}. Specifically, this function: (1) builds
+#' inverse leaf-to-SNP lookup tables for both the training and test partitions;
+#' (2) constructs a feature binning specification from the split thresholds in
+#' \code{boosted$tdt}, discretising continuous split values into stable
+#' interpretable bins; (3) annotates \code{boosted$tdt} with the binned split
+#' value (\code{Split_bin}); and (4) builds a rule cache mapping every
+#' \code{(Tree, leaf_id)} to all of its prefixes up to \code{max_depth} splits,
+#' with optional tightening of redundant monotone constraints. On completion,
+#' the returned object gains class \code{"boosted_harvest"} and can be passed
+#' directly to all rule-level functions.
 #'
-#' @param boosted boosted object from make_boosted()
-#' @param target_bins integer, target maximum number of bins per feature
-#' @param min_per_bin numeric, minimum bin mass (definition depends on bin_weight)
-#' @param winsor_prob numeric in [0,0.5), winsorization tail probability
-#' @param method one of c("fd","quantile")
-#' @param bin_weight how to weight split thresholds when building bins:
-#'   - "node"  : each split counts equally
-#'   - "leaf"  : each split weighted by number of descendant leaves
-#'   - "cover" : each split weighted by node Cover (if present)
-#' @param verbose logical
-#' @param max_depth NULL or positive integer. If NULL uses boosted$max_depth.
-#'   Interpreted as maximum number of split-steps to include in a rule / prefix.
-#' @param tighten_monotone logical, passed to cache builder
+#' @param boosted A \code{boosted} object returned by
+#'   \code{\link{make_boosted}}.
+#' @param target_bins Positive integer. Target maximum number of bins per
+#'   feature when constructing the binning specification.
+#' @param min_per_bin Numeric scalar. Minimum bin mass (total split weight)
+#'   required for a bin to be retained; bins below this threshold are merged
+#'   with their neighbour.
+#' @param winsor_prob Numeric scalar in \code{[0, 0.5)}. Tail probability used
+#'   for winsorising split values before proposing bin boundaries, making the
+#'   bins robust to extreme outlier splits.
+#' @param method Character string, one of \code{"fd"} or \code{"quantile"}.
+#'   Algorithm used to propose the initial bin boundaries: \code{"fd"} uses a
+#'   weighted Freedman-Diaconis rule; \code{"quantile"} places boundaries at
+#'   equally spaced weighted quantiles.
+#' @param bin_weight Character string, one of \code{"node"}, \code{"leaf"}, or
+#'   \code{"cover"}. How split thresholds are weighted when constructing bins:
+#'   \code{"node"} weights each split equally; \code{"leaf"} weights by the
+#'   number of descendant leaves; \code{"cover"} weights by the xgboost node
+#'   Cover statistic (falls back to equal weighting if Cover is absent).
+#' @param max_depth \code{NULL} or a positive integer. Maximum number of
+#'   split-steps to include in a rule prefix. \code{NULL} (default) uses
+#'   \code{boosted$max_depth}. Must not exceed the realized model depth.
+#' @param tighten_monotone Logical. If \code{TRUE} (default), redundant
+#'   monotone constraints on the same feature and direction within a rule
+#'   prefix are collapsed to the tightest bound, shortening rule strings and
+#'   making them easier to interpret.
+#' @inheritParams .boosted_params
 #'
-#' @return boosted with harvest caches attached
+#' @return The input \code{boosted} object with the following additional slots
+#'   attached, and class \code{"boosted_harvest"} prepended:
+#' \describe{
+#'   \item{\code{harvest_bins}}{A named list with elements \code{breaks}
+#'     (environment keyed by feature name, each holding a numeric breakpoint
+#'     vector), \code{mids} (environment of bin midpoints), and \code{params}
+#'     (the binning parameters used).}
+#'   \item{\code{tdt}}{The original \code{tdt} \code{data.table}, now with an
+#'     additional \code{Split_bin} column giving the binned split value for
+#'     each internal node.}
+#'   \item{\code{snps_all_by_leaf_train}, \code{snps_all_by_leaf_test}}{
+#'     List-of-lists (tree → native leaf ID → integer SNP indices) mapping
+#'     each leaf to all SNPs (labelled and unlabelled) that fell into it in
+#'     the training and test partitions, respectively.}
+#'   \item{\code{leaf_rule_cache}}{A \code{data.table} with one row per
+#'     \code{(Tree, leaf_id, rule_len)} produced by \code{.build_rule_cache}.
+#'     See that function for the full column schema.}
+#'   \item{\code{tighten_monotone}}{Logical. The value of
+#'     \code{tighten_monotone} used when building the cache.}
+#'   \item{\code{harvest_max_depth}}{Integer. The effective \code{max_depth}
+#'     used when building the cache.}
+#' }
 #' @export
 
 prepare_harvest <- function(boosted,

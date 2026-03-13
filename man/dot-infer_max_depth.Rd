@@ -2,14 +2,24 @@
 % Please edit documentation in R/infer_max_depth.R
 \name{.infer_max_depth}
 \alias{.infer_max_depth}
-\title{Find maximum realized tree depth in an xgboost model.}
+\title{Find the maximum realized split depth across all trees in an \code{xgboost} model}
 \usage{
 .infer_max_depth(tdt)
 }
 \arguments{
-\item{tdt}{}
+\item{tdt}{A \code{data.table} returned by \code{\link{.parse_xgb_tree}},
+with columns \code{Tree}, \code{ID}, \code{Yes}, \code{No}, and
+\code{Leaf}.}
+}
+\value{
+Integer scalar: the maximum number of split-steps from root to leaf
+observed across the entire ensemble.
 }
 \description{
-Find maximum realized tree depth in an xgboost model.
+Performs a breadth-first traversal of every tree in \code{tdt}, tracking
+the number of split-steps from the root to each node, and returns the
+maximum depth observed across all leaves in all trees. Used by
+\code{\link{make_boosted}} to set \code{boosted$max_depth}, which serves as
+the default prefix depth cap in \code{\link{prepare_harvest}}.
 }
 \keyword{internal}

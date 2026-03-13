@@ -2,14 +2,42 @@
 % Please edit documentation in R/score_snps.R
 \name{.score_snps_r}
 \alias{.score_snps_r}
-\title{Title}
+\title{Score test SNPs by averaging per-tree leaf LLRs}
 \usage{
 .score_snps_r(test_leaf_map, leaf_llrs_by_tree, Tm, n)
 }
 \arguments{
-\item{n}{}
+\item{test_leaf_map}{Named list returned by \code{.build_test_leaf_map},
+containing \code{dense_leaf_ids}: a list of length \code{Tm} where
+element \code{t} is an integer vector of length \eqn{n_\text{test}}{}
+giving each test SNP's position in the training leaf vocabulary for
+tree \code{t} (0 for leaves unseen in training).}
+
+\item{leaf_llrs_by_tree}{Named list returned by \code{.leaf_llrs} or
+\code{.leaf_llrs_fast}, containing \code{leaf_llrs_by_tree}: a list of
+length \code{Tm} where element \code{t} is a numeric vector of LLRs
+indexed by dense leaf position.}
+
+\item{Tm}{Integer scalar: number of trees.}
+
+\item{n}{Integer scalar: total number of test SNPs.}
+}
+\value{
+A named list with a single element:
+\describe{
+\item{\code{scores}}{Numeric vector of length \code{n}. Element \code{i}
+is the mean LLR of SNP \code{i} across all trees that provided a
+non-\code{NA} LLR for that SNP. SNPs with no contributing trees
+receive \code{NA}.}
+}
 }
 \description{
-Title
+For each test SNP, looks up the LLR of the leaf it fell into in each tree
+(via \code{test_leaf_map}), accumulates the LLRs across trees, and returns
+the mean over trees that contributed a non-\code{NA} LLR. Test SNPs that
+land in leaves unseen during training (position 0 in the dense map) or
+in leaves whose LLR is \code{NA} (no labelled training SNPs) do not
+contribute to the mean for that SNP. SNPs with no contributing trees
+receive a score of \code{NA}.
 }
 \keyword{internal}

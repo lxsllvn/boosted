@@ -2,14 +2,31 @@
 % Please edit documentation in R/validate_indices.R
 \name{.check_idx}
 \alias{.check_idx}
-\title{Title}
+\title{Validate and coerce an integer index vector}
 \usage{
 .check_idx(idx, n, caller = ".check_idx", label)
 }
 \arguments{
-\item{label}{}
+\item{idx}{Numeric or integer vector to validate.}
+
+\item{n}{Positive integer scalar: the maximum permissible index value
+(typically the length of the y-variable vector for the relevant
+partition).}
+
+\item{caller}{Character scalar: name of the calling function, included in
+error messages.}
+
+\item{label}{Character scalar: name of the argument being validated,
+included in error messages.}
+}
+\value{
+Integer vector: \code{idx} coerced to integer and sorted ascending.
 }
 \description{
-Title
+Checks that \code{idx} is a non-null, non-empty, non-NA, integer-valued
+numeric vector with no duplicates and all values in \code{[1, n]}. Returns
+the vector coerced to integer and sorted ascending. All error messages
+include \code{caller} and \code{label} to pinpoint the offending argument
+in the call stack.
 }
 \keyword{internal}

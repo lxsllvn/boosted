@@ -2,18 +2,25 @@
 % Please edit documentation in R/validate_yvar.R
 \name{.validate_yvar}
 \alias{.validate_yvar}
-\title{Check a y vector for compatibility with an xgboost model and return center and scale}
+\title{Validate a y-variable vector for compatibility with a feature matrix}
 \usage{
 .validate_yvar(y, features, caller = ".validate_yvar")
 }
 \arguments{
-\item{y}{vector of response values used either to train or test an xgboost model}
+\item{y}{Numeric vector of response values (training or test).}
 
-\item{features}{matrix of feature data}
+\item{features}{Numeric matrix of feature values; \code{nrow(features)} must equal \code{length(y)}.}
 
-\item{caller}{an optional string to customize error messages}
+\item{caller}{Character scalar: name of the calling function, included in error messages. Defaults to \code{".validate_yvar"}.}
+}
+\value{
+\code{invisible(TRUE)}, called for its side-effect of stopping on
+invalid input.
 }
 \description{
-Checks if a y-variable vector is 1) numeric with finite center, 2) has finite and positive scale, and 3) is the length expected from the feature matrix. If valid, returns the mean, median, sd, and mad of the vector. Called by \code{make_boosted}.
+Checks that \code{y} is numeric with a finite, positive-scale distribution
+and has the same length as \code{nrow(features)}. Stops with an informative
+error if any check fails. Called by \code{\link{make_boosted}} for both the
+training and test y-variables before any leaf predictions are made.
 }
 \keyword{internal}

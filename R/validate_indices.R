@@ -1,15 +1,24 @@
-#' Title
+#' Validate and coerce an integer index vector
 #'
-#' @param idx
-#' @param n
-#' @param caller
-#' @param label
+#' Checks that \code{idx} is a non-null, non-empty, non-NA, integer-valued
+#' numeric vector with no duplicates and all values in \code{[1, n]}. Returns
+#' the vector coerced to integer and sorted ascending. All error messages
+#' include \code{caller} and \code{label} to pinpoint the offending argument
+#' in the call stack.
 #'
-#' @return
+#' @param idx Numeric or integer vector to validate.
+#' @param n Positive integer scalar: the maximum permissible index value
+#'   (typically the length of the y-variable vector for the relevant
+#'   partition).
+#' @param caller Character scalar: name of the calling function, included in
+#'   error messages.
+#' @param label Character scalar: name of the argument being validated,
+#'   included in error messages.
+#'
+#' @return Integer vector: \code{idx} coerced to integer and sorted ascending.
 #' @keywords internal
 #'
 #' @examples
-
 .check_idx <- function(idx,
                        n,
                        caller = ".check_idx",

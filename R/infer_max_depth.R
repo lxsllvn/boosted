@@ -1,9 +1,17 @@
-#' Find maximum realized tree depth in an xgboost model.
+#' Find the maximum realized split depth across all trees in an `xgboost` model
 #'
-#' @param tdt
+#' Performs a breadth-first traversal of every tree in \code{tdt}, tracking
+#' the number of split-steps from the root to each node, and returns the
+#' maximum depth observed across all leaves in all trees. Used by
+#' \code{\link{make_boosted}} to set \code{boosted$max_depth}, which serves as
+#' the default prefix depth cap in \code{\link{prepare_harvest}}.
 #'
-#' @return
-#' @export
+#' @param tdt A \code{data.table} returned by \code{\link{.parse_xgb_tree}},
+#'   with columns \code{Tree}, \code{ID}, \code{Yes}, \code{No}, and
+#'   \code{Leaf}.
+#'
+#' @return Integer scalar: the maximum number of split-steps from root to leaf
+#'   observed across the entire ensemble.
 #' @keywords internal
 #' @examples
 .infer_max_depth <- function(tdt) {

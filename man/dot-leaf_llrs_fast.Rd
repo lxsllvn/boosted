@@ -2,14 +2,43 @@
 % Please edit documentation in R/leaf_llrs.R
 \name{.leaf_llrs_fast}
 \alias{.leaf_llrs_fast}
-\title{Title}
+\title{Sparse-matrix accelerated leaf LLR computation for permutation loops}
 \usage{
 .leaf_llrs_fast(perm_extr, leaf_mat, N_extr, N_bg, Tm, alpha = 0.5)
 }
 \arguments{
-\item{alpha}{}
+\item{perm_extr}{Integer vector of 1-based SNP indices for the permuted
+extreme set (drawn from the full labelled index pool).}
+
+\item{leaf_mat}{Named list returned by \code{.build_leaf_matrix}, containing
+the sparse incidence matrix \code{A}, per-tree \code{offsets},
+\code{Lvec} (leaves per tree), and \code{labeled_row_sums} (labelled SNP
+count per leaf row).}
+
+\item{N_extr}{Integer scalar: size of the permuted extreme set.}
+
+\item{N_bg}{Integer scalar: size of the permuted background set
+(\code{N_index_train - N_extr}).}
+
+\item{Tm}{Integer scalar: total number of trees.}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration; see
+\code{\link{.boosted_params}}.}
+}
+\value{
+A named list with a single element \code{leaf_llrs_by_tree}: a list
+of length \code{Tm} where element \code{t} is a numeric vector of LLRs
+for the dense leaves of tree \code{t}. The format is identical to the
+\code{leaf_llrs_by_tree} element returned by \code{.leaf_llrs}.
 }
 \description{
-Title
+A drop-in replacement for \code{.leaf_llrs} designed for use inside
+permutation hot loops. Instead of calling \code{tabulate()} once per tree,
+a single sparse matrix-vector product (\code{A \%*\% y}) replaces all
+\eqn{T_m}{} tabulation calls simultaneously, where \code{A} is a
+pre-built leaf-by-SNP incidence matrix. This is substantially faster when
+\code{.leaf_llrs} is called thousands of times with different permuted index
+vectors but the same leaf structure. The pre-computation cost is paid once
+by \code{.build_leaf_matrix}.
 }
 \keyword{internal}

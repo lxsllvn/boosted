@@ -1,9 +1,26 @@
-#' Title
+#' Build a dense leaf map for the test partition
 #'
-#' @param test_leaves
-#' @param train_leaf_map
+#' Maps each test SNP's native `xgboost` leaf assignment to its position in the
+#' training leaf vocabulary established by \code{\link{.build_train_leaf_map}}.
+#' A test SNP whose leaf was observed in training receives a positive dense ID;
+#' a leaf unseen in training raises an error immediately, since score lookup
+#' would be undefined for such SNPs.
 #'
-#' @return
+#' @param test_leaves Integer matrix of dimensions
+#'   \eqn{n_\text{test} \times T_m}{}, as returned by
+#'   \code{predict(model, predleaf = TRUE)} on the test feature matrix.
+#' @param train_leaf_map Named list returned by
+#'   \code{\link{.build_train_leaf_map}}, used to look up the dense position
+#'   of each test leaf within the training vocabulary.
+#'
+#' @return A named list with a single element:
+#' \describe{
+#'   \item{\code{dense_leaf_ids}}{List of length \code{Tm}. Element \code{t}
+#'     is an integer vector of length \eqn{n_\text{test}}{} giving each test
+#'     SNP's dense leaf position in tree \code{t} (i.e. its 1-based index
+#'     into \code{train_leaf_map$native_leaf_ids[[t]]}). Raises an error if
+#'     any test leaf ID was not present among the training leaves.}
+#' }
 #' @keywords internal
 #'
 #' @examples

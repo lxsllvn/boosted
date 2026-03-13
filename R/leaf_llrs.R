@@ -1,15 +1,44 @@
-#' Title
+#' Compute per-leaf log-likelihood ratios for a subset of trees
 #'
-#' @param extr_idx
-#' @param bg_idx
-#' @param train_leaf_map
-#' @param N_extr
-#' @param N_bg
-#' @param tree_idx
-#' @param alpha
-#' @param return_ids
+#' For each tree in \code{tree_idx}, tabulates how many extreme and background
+#' training SNPs fall in each leaf, then computes a log-likelihood ratio (LLR)
+#' comparing the empirical probability of that leaf assignment under the extreme
+#' distribution to the background distribution. Jeffreys-prior smoothing
+#' (\code{alpha > 0}) shrinks the raw counts toward a uniform prior over
+#' leaves, preventing extreme LLRs in sparsely occupied leaves. Leaves that
+#' contain no labelled SNPs at all receive \code{NA} rather than a spurious
+#' LLR.
 #'
-#' @return
+#' @param extr_idx Integer vector of 1-based SNP indices identifying the
+#'   extreme training set.
+#' @param bg_idx Integer vector of 1-based SNP indices identifying the
+#'   background training set.
+#' @param train_leaf_map Named list returned by \code{.build_train_leaf_map},
+#'   containing \code{dense_leaf_ids} (per-tree compact leaf assignments for
+#'   all training SNPs) and \code{n_leaves} (leaf count per tree).
+#' @param N_extr Integer scalar: total number of extreme training SNPs
+#'   (denominator for the extreme probability).
+#' @param N_bg Integer scalar: total number of background training SNPs
+#'   (denominator for the background probability).
+#' @param tree_idx Integer vector of 1-based tree indices to evaluate. Allows
+#'   the caller to score a subset of trees without reordering data.
+#' @param alpha Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration; see
+#'   \code{\link{.boosted_params}}.
+#' @param return_ids Logical. If \code{TRUE}, the native `xgboost` leaf ID for
+#'   each dense leaf index is included in the return value. Defaults to
+#'   \code{FALSE}.
+#'
+#' @return A named list with the following elements:
+#' \describe{
+#'   \item{\code{leaf_llrs_by_tree}}{A list of length \code{length(tree_idx)}.
+#'     Element \code{j} is a numeric vector of length \eqn{L_t}{} (the number
+#'     of dense leaves in tree \code{tree_idx[j]}) containing the LLR for each
+#'     leaf. Leaves with no labelled SNPs carry \code{NA}.}
+#'   \item{\code{native_leaf_ids}}{Only present when \code{return_ids = TRUE}.
+#'     A list of length \code{length(tree_idx)} where element \code{j} is an
+#'     integer vector of the native `xgboost` leaf IDs corresponding to each
+#'     position in \code{leaf_llrs_by_tree[[j]]}.}
+#' }
 #' @keywords internal
 #'
 #' @examples
@@ -118,16 +147,34 @@
 }
 
 
-#' Title
+#' Sparse-matrix accelerated leaf LLR computation for permutation loops
 #'
-#' @param perm_extr
-#' @param leaf_mat
-#' @param N_extr
-#' @param N_bg
-#' @param Tm
-#' @param alpha
+#' A drop-in replacement for \code{.leaf_llrs} designed for use inside
+#' permutation hot loops. Instead of calling \code{tabulate()} once per tree,
+#' a single sparse matrix-vector product (\code{A \%*\% y}) replaces all
+#' \eqn{T_m}{} tabulation calls simultaneously, where \code{A} is a
+#' pre-built leaf-by-SNP incidence matrix. This is substantially faster when
+#' \code{.leaf_llrs} is called thousands of times with different permuted index
+#' vectors but the same leaf structure. The pre-computation cost is paid once
+#' by \code{.build_leaf_matrix}.
 #'
-#' @return
+#' @param perm_extr Integer vector of 1-based SNP indices for the permuted
+#'   extreme set (drawn from the full labelled index pool).
+#' @param leaf_mat Named list returned by \code{.build_leaf_matrix}, containing
+#'   the sparse incidence matrix \code{A}, per-tree \code{offsets},
+#'   \code{Lvec} (leaves per tree), and \code{labeled_row_sums} (labelled SNP
+#'   count per leaf row).
+#' @param N_extr Integer scalar: size of the permuted extreme set.
+#' @param N_bg Integer scalar: size of the permuted background set
+#'   (\code{N_index_train - N_extr}).
+#' @param Tm Integer scalar: total number of trees.
+#' @param alpha Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration; see
+#'   \code{\link{.boosted_params}}.
+#'
+#' @return A named list with a single element \code{leaf_llrs_by_tree}: a list
+#'   of length \code{Tm} where element \code{t} is a numeric vector of LLRs
+#'   for the dense leaves of tree \code{t}. The format is identical to the
+#'   \code{leaf_llrs_by_tree} element returned by \code{.leaf_llrs}.
 #' @keywords internal
 #'
 #' @examples

@@ -2,7 +2,7 @@
 % Please edit documentation in R/set_snp_class.R
 \name{set_snp_class}
 \alias{set_snp_class}
-\title{Title}
+\title{Define extreme and background SNP class boundaries from training data}
 \usage{
 set_snp_class(
   yvar_train,
@@ -14,8 +14,55 @@ set_snp_class(
 )
 }
 \arguments{
-\item{scale}{}
+\item{yvar_train}{Numeric vector of response values for the training SNPs,
+used to estimate the center (\code{mu}) and spread (\code{sig}) that
+define the class boundaries.}
+
+\item{extreme_k}{Positive numeric scalar. Distance from the training center
+in units of \code{sig} at which the extreme set boundary is placed.}
+
+\item{lower_tail}{Logical. If \code{FALSE} (default), the extreme set is the
+upper tail (\eqn{\mu + k \cdot \sigma}); if \code{TRUE}, it is the lower
+tail (\eqn{\mu - k \cdot \sigma}).}
+
+\item{bg_band_k}{Positive numeric scalar, must be less than
+\code{extreme_k}. Half-width of the symmetric background band around the
+training center, in units of \code{sig}. SNPs with
+\eqn{|\text{y} - \mu| \le \text{bg\_band\_k} \cdot \sigma}{} fall in the
+background set.}
+
+\item{center}{Character string, one of \code{"mean"} or \code{"median"}.
+Measure of center used when standardising \code{yvar_train} to define
+extreme and background set boundaries.}
+
+\item{scale}{Character string, one of \code{"sd"} or \code{"mad"}.
+Measure of spread used when standardising \code{yvar_train} to define
+extreme and background set boundaries.}
+}
+\value{
+A named list with the following elements:
+\describe{
+\item{\code{mu}}{Numeric scalar. Estimated center of \code{yvar_train}
+(mean or median according to \code{center}).}
+\item{\code{sig}}{Numeric scalar. Estimated spread of \code{yvar_train}
+(SD or MAD according to \code{scale}).}
+\item{\code{extr_thr}}{Numeric scalar. Extreme set threshold on the
+original y-scale.}
+\item{\code{bg_low}, \code{bg_high}}{Numeric scalars. Lower and upper
+boundaries of the background band on the original y-scale.}
+\item{\code{apply}}{A function \code{function(y)} that accepts any
+numeric vector and returns a list with integer vectors
+\code{extr_idx} and \code{bg_idx} giving the 1-based positions of
+extreme and background SNPs, respectively, using the frozen thresholds.}
+}
 }
 \description{
-Title
+Estimates a center and spread from \code{yvar_train} and computes fixed
+thresholds that partition any y-variable vector into an extreme set (a
+single tail beyond \code{extreme_k} standard units from center) and a
+background set (a symmetric band within \code{bg_band_k} standard units of
+center). Returns a named list containing the estimated parameters, the
+derived thresholds, and a reusable \code{$apply} closure. Calling
+\code{$apply} on the training and test y-variables separately ensures that
+class boundaries are always derived from training data alone.
 }

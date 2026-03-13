@@ -2,14 +2,18 @@
 % Please edit documentation in R/jacc.R
 \name{.drop_all_na_cols}
 \alias{.drop_all_na_cols}
-\title{Drop entirely NA columns from data table}
+\title{Drop entirely-NA columns from a data.table}
 \usage{
 .drop_all_na_cols(DT)
 }
 \arguments{
-\item{DT}{}
+\item{DT}{A \code{data.table}.}
+}
+\value{
+The input \code{data.table} with any columns that are entirely
+\code{NA} removed. Columns containing at least one non-\code{NA} value
+are retained.
 }
 \description{
-Drop entirely NA columns from data table
+Drop entirely-NA columns from a data.table
 }
-\keyword{internal}

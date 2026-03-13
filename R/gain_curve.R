@@ -1,11 +1,35 @@
-#' Title
+#' Compute a gain curve for a scored set of SNPs
 #'
-#' @param scores
-#' @param n
-#' @param extr_idx
-#' @param grid
+#' Sorts SNPs by score descending (with \code{NA}s ranked last), then
+#' evaluates the gain curve at each fraction in \code{grid}: for the top
+#' \code{ceiling(f * n)} SNPs by score, how many extreme SNPs are recovered
+#' (recall) relative to random screening at the same fraction? The ratio of
+#' recall to screening fraction is the lift at that point.
 #'
-#' @return
+#' @param scores Numeric vector of length \code{n} containing per-SNP scores.
+#'   \code{NA}s are treated as the lowest possible score.
+#' @param n Integer scalar: total number of SNPs (length of \code{scores}).
+#' @param extr_idx Integer vector of 1-based indices of the extreme (positive)
+#'   SNPs within \code{scores}.
+#' @param grid Numeric vector of screening fractions in \code{(0, 1]} at
+#'   which to evaluate the gain curve; typically the validated
+#'   \code{gain_grid} from the calling function.
+#'
+#' @return A \code{data.table} with one row per element of \code{grid} and
+#'   the following columns:
+#' \describe{
+#'   \item{\code{frac_screened}}{Numeric. The screening fraction from
+#'     \code{grid}.}
+#'   \item{\code{n_screened}}{Integer. Number of SNPs in the top-scoring
+#'     fraction (\code{ceiling(frac_screened * n)}, clipped to
+#'     \code{[1, n]}).}
+#'   \item{\code{score_threshold}}{Numeric. The score of the last SNP
+#'     included at this cutoff.}
+#'   \item{\code{recall}}{Numeric. Fraction of extreme SNPs recovered among
+#'     the top \code{n_screened} SNPs.}
+#'   \item{\code{lift_curve}}{Numeric. \code{recall / frac_screened}; equals
+#'     1 for a random ranker.}
+#' }
 #' @keywords internal
 #'
 #' @examples
