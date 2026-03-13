@@ -1,18 +1,35 @@
-#' Title
+#' Sensitivity of boosted scores to the extreme set boundary
 #'
-#' @param boosted
-#' @param background_k
-#' @param lower_tail
-#' @param center
-#' @param scale
-#' @param k_grid
-#' @param R
-#' @param alpha
-#' @param gain_grid
-#' @param verbose
-#' @param progress_every
+#' Varies the boundary parameter \code{k} used to define the extreme SNP set
+#' (the tail beyond \code{k} standard units from the training center), holding
+#' the background set fixed at \code{background_k}. For each \code{k} in
+#' \code{k_grid}, leaf LLRs are recomputed from the resulting training extreme
+#' set and gain curves are evaluated on the test partition. When \code{R > 1},
+#' extreme sets larger than the smallest in \code{k_grid} are subsampled
+#' \code{R} times to their common minimum size, ensuring that performance
+#' differences across boundaries are attributable to which SNPs are labelled
+#' extreme rather than how many.
 #'
-#' @return
+#' @param background_k Positive numeric scalar. Fixed bandwidth for the
+#'   background set, in units of the training spread. Extreme \code{k} values
+#'   that equal or fall below \code{background_k} are dropped with a warning
+#'   to prevent overlap between sets.
+#' @param k_grid Numeric vector of positive extreme boundary values to
+#'   evaluate. Values \eqn{\le} \code{background_k} are silently dropped.
+#' @inheritParams .boosted_params
+#'
+#' @return A named list with two elements:
+#' \describe{
+#'   \item{\code{results}}{A \code{data.table} with one row per
+#'     \code{(k, rep, frac_screened)} combination, containing columns
+#'     \code{mode} (\code{"extreme"}), \code{k}, \code{rep},
+#'     \code{score} (\code{"contrast"}), \code{extr_size_used},
+#'     \code{frac_screened}, \code{n_screened}, \code{recall},
+#'     \code{lift_curve}, and \code{score_threshold}.}
+#'   \item{\code{summary}}{A \code{data.table} summarising mean and SD of
+#'     \code{lift_curve} and \code{recall} across replicates, grouped by
+#'     \code{k}, \code{score}, and \code{frac_screened}.}
+#' }
 #' @export
 #'
 #' @examples

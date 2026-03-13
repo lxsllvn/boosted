@@ -2,7 +2,7 @@
 % Please edit documentation in R/label_sensitivity.R
 \name{label_sensitivity}
 \alias{label_sensitivity}
-\title{Title}
+\title{Sensitivity of boosted scores to training label noise}
 \usage{
 label_sensitivity(
   boosted,
@@ -15,8 +15,53 @@ label_sensitivity(
 )
 }
 \arguments{
-\item{progress_every}{}
+\item{boosted}{A \code{boosted} object returned by \code{\link{make_boosted}},
+or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
+
+\item{noise_grid}{Numeric vector of contamination fractions in
+\code{[0, 1]}. For \code{target = "extreme"}, a fraction \code{q} of the
+extreme set size is drawn from the background set and added to the extreme
+labels; for \code{target = "background"}, a fraction \code{q} of the
+background set size is drawn from the extreme set.}
+
+\item{R}{Positive integer. Number of resampling or permutation iterations.}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration applied
+when smoothing leaf-level count ratios into log-likelihood ratios. When
+\code{alpha = 0} a small epsilon floor is used to avoid \code{log(0)};
+the default \code{alpha = 0.5} corresponds to the symmetric Jeffreys prior.}
+
+\item{gain_grid}{Numeric vector of screening fractions in \code{(0, 1]} at
+which to evaluate the gain curve. Values are clipped to
+\code{[0.001, 0.999]} and deduplicated before use.}
+
+\item{target}{Character string, one of \code{"extreme"} or
+\code{"background"}. Which training label set receives the impostor
+contamination.}
+
+\item{progress_every}{Optional positive integer. If supplied, a progress
+message is printed to the console after every \code{progress_every}
+iterations. \code{NULL} (default) suppresses progress messages.}
+}
+\value{
+A named list with two elements:
+\describe{
+\item{\code{results}}{A \code{data.table} with one row per
+\code{(q, rep, frac_screened)} combination, containing columns
+\code{mode} (the value of \code{target}), \code{q}, \code{rep},
+\code{score} (\code{"contrast"}), \code{frac_screened},
+\code{n_screened}, \code{recall}, \code{lift_curve}, and
+\code{score_threshold}.}
+\item{\code{summary}}{A \code{data.table} summarising mean and SD of
+\code{lift_curve} and \code{recall} across replicates, grouped by
+\code{mode}, \code{score}, \code{q}, and \code{frac_screened}.}
+}
 }
 \description{
-Title
+Injects controlled label noise into the training extreme or background set
+by randomly adding a fraction \code{q} of impostor labels (background SNPs
+added to the extreme set, or vice versa), then recomputing leaf LLRs and
+gain curves across \code{R} resampling iterations per noise level. This
+quantifies how much the gain curve degrades as a function of label
+contamination and helps assess robustness to imperfect class definitions.
 }

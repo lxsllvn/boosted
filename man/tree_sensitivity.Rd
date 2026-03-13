@@ -2,7 +2,7 @@
 % Please edit documentation in R/tree_sensitivity.R
 \name{tree_sensitivity}
 \alias{tree_sensitivity}
-\title{Title}
+\title{Sensitivity of boosted scores to tree subsampling}
 \usage{
 tree_sensitivity(
   boosted,
@@ -16,8 +16,60 @@ tree_sensitivity(
 )
 }
 \arguments{
-\item{progress_every}{}
+\item{boosted}{A \code{boosted} object returned by \code{\link{make_boosted}},
+or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
+
+\item{subsample_grid}{Numeric vector of tree subsample fractions in
+\code{(0, 1]}. Each value \code{q} determines the proportion of the
+\code{Tm} trees to retain in each replicate.}
+
+\item{R}{Positive integer. Number of resampling or permutation iterations.}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration applied
+when smoothing leaf-level count ratios into log-likelihood ratios. When
+\code{alpha = 0} a small epsilon floor is used to avoid \code{log(0)};
+the default \code{alpha = 0.5} corresponds to the symmetric Jeffreys prior.}
+
+\item{gain_grid}{Numeric vector of screening fractions in \code{(0, 1]} at
+which to evaluate the gain curve. Values are clipped to
+\code{[0.001, 0.999]} and deduplicated before use.}
+
+\item{topk_frac}{Numeric scalar in \code{(0, 1]}. Fraction of test SNPs
+used to define the top-k set for Jaccard comparisons.}
+
+\item{verbose}{Logical. If \code{TRUE}, timestamped progress messages are
+printed at major internal checkpoints.}
+
+\item{progress_every}{Optional positive integer. If supplied, a progress
+message is printed to the console after every \code{progress_every}
+iterations. \code{NULL} (default) suppresses progress messages.}
+}
+\value{
+A named list with three elements:
+\describe{
+\item{\code{results}}{A \code{data.table} with one row per
+\code{(q_trees, n_trees, rep, frac_screened)} combination, containing
+gain curve columns \code{recall}, \code{lift_curve}, and
+\code{score_threshold}.}
+\item{\code{diag_runs}}{A \code{data.table} with one row per replicate
+containing per-run diagnostics: \code{q_trees}, \code{n_trees},
+\code{rep}, \code{cor_vs_full} (Spearman correlation of subset scores
+vs full-model scores), \code{jaccard_vs_full} (Jaccard similarity of
+top-k sets), and \code{trees_sampled} (comma-separated tree indices).}
+\item{\code{summary}}{A \code{data.table} with one row per
+\code{(q_trees, n_trees)} summarising mean and SD of
+\code{lift_curve} and \code{recall} across replicates, plus
+\code{jaccard} (mean within-\code{q} Jaccard across replicate pairs)
+and \code{mean_cor_vs_full} and \code{mean_jacc_vs_full}.}
+}
 }
 \description{
-Title
+Assesses how much the gain curve and SNP score rankings depend on which
+trees contribute to scoring. For each subsample fraction \code{q} in
+\code{subsample_grid}, a random subset of \code{round(q * Tm)} trees is
+drawn \code{R} times; leaf LLRs and SNP scores are recomputed from each
+subset and compared against the full-model baseline via Spearman correlation
+and Jaccard similarity of the top-\code{k} ranked SNPs. This helps diagnose
+whether a small number of influential trees dominate the score or whether
+signal is distributed across the ensemble.
 }

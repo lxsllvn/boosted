@@ -2,7 +2,7 @@
 % Please edit documentation in R/extreme_sensitivity.R
 \name{extreme_sensitivity}
 \alias{extreme_sensitivity}
-\title{Title}
+\title{Sensitivity of boosted scores to the extreme set boundary}
 \usage{
 extreme_sensitivity(
   boosted,
@@ -19,8 +19,69 @@ extreme_sensitivity(
 )
 }
 \arguments{
-\item{progress_every}{}
+\item{boosted}{A \code{boosted} object returned by \code{\link{make_boosted}},
+or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
+
+\item{background_k}{Positive numeric scalar. Fixed bandwidth for the
+background set, in units of the training spread. Extreme \code{k} values
+that equal or fall below \code{background_k} are dropped with a warning
+to prevent overlap between sets.}
+
+\item{lower_tail}{Logical. If \code{FALSE} (default), the extreme set is the
+upper tail (\eqn{\mu + k \cdot \sigma}); if \code{TRUE}, it is the lower
+tail (\eqn{\mu - k \cdot \sigma}).}
+
+\item{center}{Character string, one of \code{"mean"} or \code{"median"}.
+Measure of center used when standardising \code{yvar_train} to define
+extreme and background set boundaries.}
+
+\item{scale}{Character string, one of \code{"sd"} or \code{"mad"}.
+Measure of spread used when standardising \code{yvar_train} to define
+extreme and background set boundaries.}
+
+\item{k_grid}{Numeric vector of positive extreme boundary values to
+evaluate. Values \eqn{\le} \code{background_k} are silently dropped.}
+
+\item{R}{Positive integer. Number of resampling or permutation iterations.}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration applied
+when smoothing leaf-level count ratios into log-likelihood ratios. When
+\code{alpha = 0} a small epsilon floor is used to avoid \code{log(0)};
+the default \code{alpha = 0.5} corresponds to the symmetric Jeffreys prior.}
+
+\item{gain_grid}{Numeric vector of screening fractions in \code{(0, 1]} at
+which to evaluate the gain curve. Values are clipped to
+\code{[0.001, 0.999]} and deduplicated before use.}
+
+\item{verbose}{Logical. If \code{TRUE}, timestamped progress messages are
+printed at major internal checkpoints.}
+
+\item{progress_every}{Optional positive integer. If supplied, a progress
+message is printed to the console after every \code{progress_every}
+iterations. \code{NULL} (default) suppresses progress messages.}
+}
+\value{
+A named list with two elements:
+\describe{
+\item{\code{results}}{A \code{data.table} with one row per
+\code{(k, rep, frac_screened)} combination, containing columns
+\code{mode} (\code{"extreme"}), \code{k}, \code{rep},
+\code{score} (\code{"contrast"}), \code{extr_size_used},
+\code{frac_screened}, \code{n_screened}, \code{recall},
+\code{lift_curve}, and \code{score_threshold}.}
+\item{\code{summary}}{A \code{data.table} summarising mean and SD of
+\code{lift_curve} and \code{recall} across replicates, grouped by
+\code{k}, \code{score}, and \code{frac_screened}.}
+}
 }
 \description{
-Title
+Varies the boundary parameter \code{k} used to define the extreme SNP set
+(the tail beyond \code{k} standard units from the training center), holding
+the background set fixed at \code{background_k}. For each \code{k} in
+\code{k_grid}, leaf LLRs are recomputed from the resulting training extreme
+set and gain curves are evaluated on the test partition. When \code{R > 1},
+extreme sets larger than the smallest in \code{k_grid} are subsampled
+\code{R} times to their common minimum size, ensuring that performance
+differences across boundaries are attributable to which SNPs are labelled
+extreme rather than how many.
 }

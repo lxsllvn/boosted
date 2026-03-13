@@ -1,14 +1,34 @@
-#' Title
+#' Sensitivity of boosted scores to training label noise
 #'
-#' @param boosted
-#' @param noise_grid
-#' @param R
-#' @param alpha
-#' @param gain_grid
-#' @param target
-#' @param progress_every
+#' Injects controlled label noise into the training extreme or background set
+#' by randomly adding a fraction \code{q} of impostor labels (background SNPs
+#' added to the extreme set, or vice versa), then recomputing leaf LLRs and
+#' gain curves across \code{R} resampling iterations per noise level. This
+#' quantifies how much the gain curve degrades as a function of label
+#' contamination and helps assess robustness to imperfect class definitions.
 #'
-#' @return
+#' @param noise_grid Numeric vector of contamination fractions in
+#'   \code{[0, 1]}. For \code{target = "extreme"}, a fraction \code{q} of the
+#'   extreme set size is drawn from the background set and added to the extreme
+#'   labels; for \code{target = "background"}, a fraction \code{q} of the
+#'   background set size is drawn from the extreme set.
+#' @param target Character string, one of \code{"extreme"} or
+#'   \code{"background"}. Which training label set receives the impostor
+#'   contamination.
+#' @inheritParams .boosted_params
+#'
+#' @return A named list with two elements:
+#' \describe{
+#'   \item{\code{results}}{A \code{data.table} with one row per
+#'     \code{(q, rep, frac_screened)} combination, containing columns
+#'     \code{mode} (the value of \code{target}), \code{q}, \code{rep},
+#'     \code{score} (\code{"contrast"}), \code{frac_screened},
+#'     \code{n_screened}, \code{recall}, \code{lift_curve}, and
+#'     \code{score_threshold}.}
+#'   \item{\code{summary}}{A \code{data.table} summarising mean and SD of
+#'     \code{lift_curve} and \code{recall} across replicates, grouped by
+#'     \code{mode}, \code{score}, \code{q}, and \code{frac_screened}.}
+#' }
 #' @export
 #'
 #' @examples

@@ -1,15 +1,38 @@
-#' Title
+#' Sensitivity of boosted scores to tree subsampling
 #'
-#' @param boosted
-#' @param subsample_grid
-#' @param R
-#' @param alpha
-#' @param gain_grid
-#' @param topk_frac
-#' @param verbose
-#' @param progress_every
+#' Assesses how much the gain curve and SNP score rankings depend on which
+#' trees contribute to scoring. For each subsample fraction \code{q} in
+#' \code{subsample_grid}, a random subset of \code{round(q * Tm)} trees is
+#' drawn \code{R} times; leaf LLRs and SNP scores are recomputed from each
+#' subset and compared against the full-model baseline via Spearman correlation
+#' and Jaccard similarity of the top-\code{k} ranked SNPs. This helps diagnose
+#' whether a small number of influential trees dominate the score or whether
+#' signal is distributed across the ensemble.
 #'
-#' @return
+#' @param subsample_grid Numeric vector of tree subsample fractions in
+#'   \code{(0, 1]}. Each value \code{q} determines the proportion of the
+#'   \code{Tm} trees to retain in each replicate.
+#' @param topk_frac Numeric scalar in \code{(0, 1]}. Fraction of test SNPs
+#'   used to define the top-k set for Jaccard comparisons.
+#' @inheritParams .boosted_params
+#'
+#' @return A named list with three elements:
+#' \describe{
+#'   \item{\code{results}}{A \code{data.table} with one row per
+#'     \code{(q_trees, n_trees, rep, frac_screened)} combination, containing
+#'     gain curve columns \code{recall}, \code{lift_curve}, and
+#'     \code{score_threshold}.}
+#'   \item{\code{diag_runs}}{A \code{data.table} with one row per replicate
+#'     containing per-run diagnostics: \code{q_trees}, \code{n_trees},
+#'     \code{rep}, \code{cor_vs_full} (Spearman correlation of subset scores
+#'     vs full-model scores), \code{jaccard_vs_full} (Jaccard similarity of
+#'     top-k sets), and \code{trees_sampled} (comma-separated tree indices).}
+#'   \item{\code{summary}}{A \code{data.table} with one row per
+#'     \code{(q_trees, n_trees)} summarising mean and SD of
+#'     \code{lift_curve} and \code{recall} across replicates, plus
+#'     \code{jaccard} (mean within-\code{q} Jaccard across replicate pairs)
+#'     and \code{mean_cor_vs_full} and \code{mean_jacc_vs_full}.}
+#' }
 #' @export
 #'
 #' @examples

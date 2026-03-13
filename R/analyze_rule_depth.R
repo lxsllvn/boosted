@@ -1,46 +1,44 @@
-#' Title
+#' Evaluate candidate rules and all their prefixes across depths
 #'
-#' @param boosted
-#' @param candidate_rules
-#' @param which use the "train" or "test" data partition; "train" is used by default.
-#' @param alpha
-#' @param fold_indices (optional) integer vector of SNP indices; if provided, the analysis is restricted to these SNPs. By default, all SNPs in "train" or "test" are used.
-#' @param progress_every (optional) print an update message after every N evaluated rules.
+#' For each rule string in \code{candidate_rules}, retrieves all of its
+#' prefixes (i.e. shorter rules formed by the first \eqn{1, 2, \ldots,
+#' \text{rule\_len}}{} splits of each leaf path that produced the candidate)
+#' from \code{boosted$leaf_rule_cache}. Each prefix is then scored in the same
+#' way as \code{\link{validate_rules}}: SNPs covered by matching
+#' \code{(Tree, leaf_id)} pairs are pooled and enrichment statistics are
+#' computed. The result makes it straightforward to see how performance changes
+#' as splits are added along each candidate's path, which is useful for
+#' pruning overly deep rules or identifying the split that contributes most to
+#' enrichment.
 #'
-#' @return
+#' @inheritParams .boosted_params
 #'
-#'  * `rule_str`
-#'
-#'  * `n_clauses`
-#'
-#'  * `n_extreme`
-#'
-#'  * `n_bg`
-#'
-#'  * `support_labeled`
-#'
-#'  * `support_all`
-#'
-#'  * `enrichment`
-#'
-#'  * `precision`
-#'
-#'  * `recall`
-#'
-#'  * `lift`
-#'
-#'  * `med_y_extreme`
-#'
-#'  * `med_y_bg`
-#'
-#'  * `med_y_overall`
-#'
-#'  * `n_leaf_occurrences`
-#'
-#'  * `n_trees`
-#'
-#'  * `frac_trees`
-#'
+#' @return A \code{data.table} with one row per unique rule string (candidate
+#'   or prefix) that covers at least one SNP, ordered by \code{n_clauses}
+#'   ascending then \code{enrichment} and \code{support_labeled} descending.
+#'   Columns:
+#' \describe{
+#'   \item{\code{rule_str}}{Character. The rule or prefix string.}
+#'   \item{\code{n_clauses}}{Integer. Number of split conditions after
+#'     monotone tightening.}
+#'   \item{\code{n_extreme}, \code{n_bg}}{Integer. Extreme and background SNP
+#'     counts within the rule's SNP bucket.}
+#'   \item{\code{support_labeled}}{Integer. Total labelled SNPs in the bucket.}
+#'   \item{\code{support_all}}{Integer. Total SNPs in the bucket (labelled and
+#'     unlabelled).}
+#'   \item{\code{enrichment}}{Numeric. Rule-level LLR with Jeffreys smoothing.}
+#'   \item{\code{precision}}{Numeric. \code{n_extreme / support_labeled}.}
+#'   \item{\code{recall}}{Numeric. \code{n_extreme / N_extr}.}
+#'   \item{\code{lift}}{Numeric. \code{precision / base_rate}.}
+#'   \item{\code{med_y_extreme}, \code{med_y_bg}, \code{med_y_overall}}{
+#'     Numeric. Median response values for extreme, background, and all SNPs
+#'     in the bucket.}
+#'   \item{\code{n_leaf_occurrences}}{Integer. Number of \code{(Tree, leaf_id)}
+#'     pairs in the ensemble that match this rule.}
+#'   \item{\code{n_trees}}{Integer. Number of distinct trees in which the rule
+#'     occurs.}
+#'   \item{\code{frac_trees}}{Numeric. \code{n_trees / Tm}.}
+#' }
 #' @export
 #'
 #' @examples

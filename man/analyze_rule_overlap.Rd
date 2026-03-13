@@ -2,27 +2,75 @@
 % Please edit documentation in R/analyze_rule_overlap.R
 \name{analyze_rule_overlap}
 \alias{analyze_rule_overlap}
-\title{Title}
+\title{Pairwise SNP overlap analysis between candidate rules}
 \usage{
 analyze_rule_overlap(
   boosted,
-  harvest,
-  candidate_rules,
+  candidate_rules = NULL,
   which = c("train", "test"),
   fold_indices = NULL,
-  shrink_m = 0,
   progress_every = NULL
 )
 }
 \arguments{
-\item{which}{character; evaluate on "train" or "test"}
+\item{boosted}{A \code{boosted} object returned by \code{\link{make_boosted}},
+or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
 
-\item{fold_indices}{optional integer vector of SNP indices (1-based) to restrict evaluation universe}
+\item{candidate_rules}{Optional character vector of rule strings. Each
+string must be present in \code{boosted$leaf_rule_cache} (built by
+\code{\link{prepare_harvest}}). If \code{NULL}, the terminal (longest)
+rule of every leaf in the ensemble is used.}
 
-\item{shrink_m}{non-negative numeric; beta–binomial smoothing strength for precision/lift (0 disables)}
+\item{which}{Character string, one of \code{"train"} or \code{"test"}.
+Selects which data partition to use for SNP bucket assembly and scoring.}
 
-\item{progress_every}{}
+\item{fold_indices}{Optional integer vector of SNP indices (1-based). If
+supplied, the analysis is restricted to these SNPs; extreme and background
+label sets are intersected with \code{fold_indices} before scoring. By
+default all SNPs in the selected partition are used.}
+
+\item{progress_every}{Optional positive integer. If supplied, a progress
+message is printed to the console after every \code{progress_every}
+iterations. \code{NULL} (default) suppresses progress messages.}
+}
+\value{
+A named list with the following elements:
+\describe{
+\item{\code{overlap}}{A \code{data.table} with one row per ordered pair
+\code{(i, j)} with \code{i < j} and \code{n_all_intersect > 0},
+containing: \code{i_index}, \code{j_index} (1-based positions in
+\code{rule_ids}); per-rule SNP counts
+(\code{n_all_i}/\code{j}, \code{n_ext_i}/\code{j},
+\code{n_bg_i}/\code{j}); intersection sizes
+(\code{n_all_intersect}, \code{n_ext_intersect},
+\code{n_bg_intersect}); unique-to-each-rule counts
+(\code{n_all_unique_i}/\code{j}); directional overlaps
+(\code{prop_all_i_in_j}, \code{prop_all_j_in_i}); and
+Jaccard coefficients (\code{jacc_all}, \code{jacc_ext},
+\code{jacc_bg}) and min-normalised overlaps
+(\code{overlap_all}, \code{overlap_ext}, \code{overlap_bg}).
+Entirely-\code{NA} columns are dropped.}
+\item{\code{rule_ids}}{Character vector of length \code{K}: the sorted
+rule strings corresponding to rows/columns of the Jaccard matrices.}
+\item{\code{jaccard_ext}, \code{jaccard_bg}, \code{jaccard_all}}{
+Numeric \eqn{K \times K}{} matrices of Jaccard coefficients computed
+over extreme, background, and all SNPs respectively. Diagonal entries
+are 1.}
+\item{\code{sets}}{A list with elements \code{A_sets} and \code{B_sets}
+(per-rule compact extreme and background SNP ID vectors for use in
+downstream optimisation) and scalars \code{A_n} and \code{B_n} (total
+extreme and background set sizes).}
+\item{\code{meta}}{A list recording \code{which}, \code{fold_n_all},
+\code{fold_n_extr}, and \code{fold_n_bg}.}
+}
 }
 \description{
-Title
+For each pair of candidate rules, computes the intersection and union of
+their SNP buckets (the sets of SNPs covered by matching
+\code{(Tree, leaf_id)} pairs across the ensemble) and derives Jaccard
+similarity coefficients and directional overlap proportions, separately for
+all SNPs, extreme SNPs, and background SNPs. A sparse incidence matrix
+approach replaces \eqn{O(K^2)}{} pairwise set-intersection loops, making
+the computation tractable for large rule sets. The output supports
+downstream selection of non-redundant rule subsets.
 }

@@ -2,22 +2,80 @@
 % Please edit documentation in R/analyze_rule_depth.R
 \name{analyze_rule_depth}
 \alias{analyze_rule_depth}
-\title{Title}
+\title{Evaluate candidate rules and all their prefixes across depths}
 \usage{
 analyze_rule_depth(
   boosted,
-  harvest,
   candidate_rules,
   which = c("train", "test"),
-  shrink_m = 0,
   alpha = 0.5,
   fold_indices = NULL,
   progress_every = NULL
 )
 }
 \arguments{
-\item{progress_every}{}
+\item{boosted}{A \code{boosted} object returned by \code{\link{make_boosted}},
+or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
+
+\item{candidate_rules}{Optional character vector of rule strings. Each
+string must be present in \code{boosted$leaf_rule_cache} (built by
+\code{\link{prepare_harvest}}). If \code{NULL}, the terminal (longest)
+rule of every leaf in the ensemble is used.}
+
+\item{which}{Character string, one of \code{"train"} or \code{"test"}.
+Selects which data partition to use for SNP bucket assembly and scoring.}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration applied
+when smoothing leaf-level count ratios into log-likelihood ratios. When
+\code{alpha = 0} a small epsilon floor is used to avoid \code{log(0)};
+the default \code{alpha = 0.5} corresponds to the symmetric Jeffreys prior.}
+
+\item{fold_indices}{Optional integer vector of SNP indices (1-based). If
+supplied, the analysis is restricted to these SNPs; extreme and background
+label sets are intersected with \code{fold_indices} before scoring. By
+default all SNPs in the selected partition are used.}
+
+\item{progress_every}{Optional positive integer. If supplied, a progress
+message is printed to the console after every \code{progress_every}
+iterations. \code{NULL} (default) suppresses progress messages.}
+}
+\value{
+A \code{data.table} with one row per unique rule string (candidate
+or prefix) that covers at least one SNP, ordered by \code{n_clauses}
+ascending then \code{enrichment} and \code{support_labeled} descending.
+Columns:
+\describe{
+\item{\code{rule_str}}{Character. The rule or prefix string.}
+\item{\code{n_clauses}}{Integer. Number of split conditions after
+monotone tightening.}
+\item{\code{n_extreme}, \code{n_bg}}{Integer. Extreme and background SNP
+counts within the rule's SNP bucket.}
+\item{\code{support_labeled}}{Integer. Total labelled SNPs in the bucket.}
+\item{\code{support_all}}{Integer. Total SNPs in the bucket (labelled and
+unlabelled).}
+\item{\code{enrichment}}{Numeric. Rule-level LLR with Jeffreys smoothing.}
+\item{\code{precision}}{Numeric. \code{n_extreme / support_labeled}.}
+\item{\code{recall}}{Numeric. \code{n_extreme / N_extr}.}
+\item{\code{lift}}{Numeric. \code{precision / base_rate}.}
+\item{\code{med_y_extreme}, \code{med_y_bg}, \code{med_y_overall}}{
+Numeric. Median response values for extreme, background, and all SNPs
+in the bucket.}
+\item{\code{n_leaf_occurrences}}{Integer. Number of \code{(Tree, leaf_id)}
+pairs in the ensemble that match this rule.}
+\item{\code{n_trees}}{Integer. Number of distinct trees in which the rule
+occurs.}
+\item{\code{frac_trees}}{Numeric. \code{n_trees / Tm}.}
+}
 }
 \description{
-Title
+For each rule string in \code{candidate_rules}, retrieves all of its
+prefixes (i.e. shorter rules formed by the first \eqn{1, 2, \ldots,
+\text{rule\_len}}{} splits of each leaf path that produced the candidate)
+from \code{boosted$leaf_rule_cache}. Each prefix is then scored in the same
+way as \code{\link{validate_rules}}: SNPs covered by matching
+\code{(Tree, leaf_id)} pairs are pooled and enrichment statistics are
+computed. The result makes it straightforward to see how performance changes
+as splits are added along each candidate's path, which is useful for
+pruning overly deep rules or identifying the split that contributes most to
+enrichment.
 }
