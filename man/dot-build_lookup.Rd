@@ -2,7 +2,7 @@
 % Please edit documentation in R/build_lookup.R
 \name{.build_lookup}
 \alias{.build_lookup}
-\title{Internal dispatcher for build_lookup}
+\title{Internal dispatcher for \code{.build_lookup_R}}
 \usage{
 .build_lookup(
   dense_leaf_ids,
@@ -14,6 +14,11 @@
 )
 }
 \description{
-Internal dispatcher for build_lookup
+Calls the Rcpp implementation \code{.build_lookup_rcpp} when available,
+falling back to the pure-R \code{.build_lookup_R}. The \code{all} argument
+is coerced to a logical before being passed to the Rcpp layer, which
+expects a scalar \code{SEXP} rather than an arbitrary sentinel value.
+See \code{\link{.build_lookup_R}} for full parameter and return
+documentation.
 }
 \keyword{internal}

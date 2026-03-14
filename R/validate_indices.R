@@ -17,8 +17,6 @@
 #'
 #' @return Integer vector: \code{idx} coerced to integer and sorted ascending.
 #' @keywords internal
-#'
-#' @examples
 .check_idx <- function(idx,
                        n,
                        caller = ".check_idx",
@@ -41,20 +39,30 @@
   sort(idx)
 }
 
-#' Title
+#' Validate training and test extreme and background index sets
 #'
-#' @param n_yvar_train
-#' @param extr_idx_train
-#' @param bg_idx_train
-#' @param n_yvar_test
-#' @param extr_idx_test
-#' @param bg_idx_test
-#' @param caller
+#' Calls \code{.check_idx} on each of the four index vectors, then checks that
+#' the extreme and background sets within each partition are disjoint. Returns
+#' the validated index vectors together with pre-computed set-size scalars used
+#' throughout the \code{boosted} object.
 #'
-#' @return
+#' @param n_yvar_train Positive integer: total number of training SNPs.
+#' @param extr_idx_train Integer vector: extreme training SNP indices.
+#' @param bg_idx_train Integer vector: background training SNP indices.
+#' @param n_yvar_test Positive integer: total number of test SNPs.
+#' @param extr_idx_test Integer vector: extreme test SNP indices.
+#' @param bg_idx_test Integer vector: background test SNP indices.
+#' @param caller Character scalar: name of the calling function, included in
+#'   error messages.
+#'
+#' @return A named list with elements \code{extr_idx_train},
+#'   \code{bg_idx_train}, \code{extr_idx_test}, \code{bg_idx_test}
+#'   (validated, sorted integer vectors) and integer scalars
+#'   \code{N_extr_train}, \code{N_bg_train}, \code{N_extr_test},
+#'   \code{N_bg_test}, \code{N_index_train}, \code{N_index_test}.
 #' @keywords internal
-#'
-#' @examples
+#' @keywords internal
+
 .validate_indices <- function(n_yvar_train,
                               extr_idx_train,
                               bg_idx_train,

@@ -2,12 +2,20 @@
 % Please edit documentation in R/build_leaf_matrix.R
 \name{.build_leaf_matrix}
 \alias{.build_leaf_matrix}
-\title{Precompute a sparse SNP-by-leaf membership matrix}
+\title{Precompute a sparse SNP-by-leaf membership matrix for permutation hot loops}
 \usage{
 .build_leaf_matrix(train_leaf_map, N_index_train)
 }
 \arguments{
-\item{N_index_train}{}
+\item{train_leaf_map}{Named list returned by
+\code{\link{.build_train_leaf_map}}, containing \code{dense_leaf_ids}
+(per-tree compact leaf assignments for all training SNPs) and
+\code{n_leaves} (leaf count per tree).}
+
+\item{N_index_train}{Positive integer scalar: total number of labelled
+training SNPs (\code{N_extr_train + N_bg_train}), as stored in
+\code{boosted$N_index_train}. Used to restrict \code{labeled_row_sums}
+to the labelled index pool rather than all training SNPs.}
 }
 \value{
 A named list with four elements:
@@ -34,8 +42,12 @@ index vector explicitly.}
 }
 }
 \description{
-Precompute a sparse SNP-by-leaf membership matrix (A) from the train
-leaf map. In permutation hot loops, a single A \%*\% y replaces Tm
-calls to tabulate().
+Builds a sparse binary matrix \code{A} of dimensions
+\code{sum(Lvec) x n_train} from the training leaf map, where leaves from
+all trees are stacked vertically in tree order. Inside the permutation loop
+in \code{\link{.leaf_llrs_fast}}, a single \code{A \%*\% y} replaces
+\code{Tm} calls to \code{tabulate()}, giving a substantial speedup when
+the loop runs thousands of iterations. The pre-computation cost is paid
+once before the loop begins.
 }
 \keyword{internal}

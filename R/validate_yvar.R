@@ -14,8 +14,7 @@
 #' @return \code{invisible(TRUE)}, called for its side-effect of stopping on
 #'   invalid input.
 #' @keywords internal
-#'
-#' @examples
+
 .validate_yvar <- function(y,
                            features,
                            caller = ".validate_yvar") {

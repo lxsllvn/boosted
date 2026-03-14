@@ -2,43 +2,55 @@
 % Please edit documentation in R/parse_xgb_tree.R
 \name{.parse_xgb_tree}
 \alias{.parse_xgb_tree}
-\title{Parse an xgboost model text dump}
+\title{Parse an \code{xgboost} model tree dump into a tidy \code{data.table}}
 \usage{
 .parse_xgb_tree(model)
 }
 \arguments{
-\item{model}{object of class \code{xgb.Booster}.}
+\item{model}{An object of class \code{xgb.Booster}.}
 }
 \value{
-A \code{data.table} with one row per \verb{(Tree, node)} in the \code{xgboost}
-model with columns:
-\itemize{
-\item \code{Tree}: unique integer ID denoting each tree in the model (zero-based
-index)
-\item \code{Node}: unique integer ID of each node in a given \code{Tree} (zero-based
-index).
-\item \code{Feature}: character; for decision nodes, the name of the feature used,
-whereas leaves are indicated by \code{Leaf}.
-\item \code{Split}: for decision nodes, numeric value of the split condition for
-decision nodes. \code{NA} for leaf nodes.
-\item \code{Yes}: for decision nodes, integer ID of the child node for instances
-with feature values /less than/ the split condition. \code{NA} for leaf nodes.
-\item \code{No}: for decision nodes, integer ID of the child node for instances with
-feature values /greater than or equal to/ the split condition. \code{NA} for
-leaf nodes.
-\item \code{Missing}: for decision nodes, integer ID of the child node for instances
-missing feature values. \code{NA} for leaf nodes.
-\item \code{Leaf}: logical; if \code{TRUE}, the node is a leaf. if \code{FALSE}, it is a
-decision node.
-\item \code{LeafVal}: numeric prediction value for a leaf; \code{NA} for decision nodes.
-\item \code{Gain}: loss function gain from a decision node; \code{NA} for leaf nodes.
-\item \code{Cover}: the number of instances seen by a decision node or collected by
-a leaf node.
+A \code{data.table} with one row per \code{(Tree, node)}, keyed
+and ordered by \code{(Tree, ID)}, with the following columns:
+\describe{
+\item{\code{Tree}}{Integer. Zero-based index of the tree within the
+ensemble.}
+\item{\code{ID}}{Integer. Zero-based node index within the tree (the
+\code{Node} column from the raw \code{xgboost} dump, renamed for consistency
+with downstream code).}
+\item{\code{Feature}}{Character. For decision nodes, the name of the
+feature used at this split. For leaf nodes, the literal string
+\code{"Leaf"}.}
+\item{\code{Split}}{Numeric. For decision nodes, the raw split threshold
+on the original feature scale. \code{NA} for leaf nodes.}
+\item{\code{Yes}}{Integer. For decision nodes, the \code{ID} of the child
+node reached when the feature value is strictly less than \code{Split}.
+\code{NA} for leaf nodes.}
+\item{\code{No}}{Integer. For decision nodes, the \code{ID} of the child
+node reached when the feature value is greater than or equal to
+\code{Split}. \code{NA} for leaf nodes.}
+\item{\code{Missing}}{Integer. For decision nodes, the \code{ID} of the
+child node reached when the feature value is missing. \code{NA} for
+leaf nodes.}
+\item{\code{Leaf}}{Logical. \code{TRUE} for leaf nodes, \code{FALSE} for
+decision nodes.}
+\item{\code{LeafVal}}{Numeric. The raw \code{xgboost} leaf prediction value for
+leaf nodes; \code{NA} for decision nodes.}
+\item{\code{Gain}}{Numeric. The impurity reduction (loss function gain)
+achieved by the split at a decision node; \code{NA} for leaf nodes.}
+\item{\code{Cover}}{Numeric. The sum of instance weights seen by a
+decision node, or collected at a leaf node, as reported by \code{xgboost}.}
 }
 }
 \description{
-A wrapper for \code{xgboost::xgb.model.dt.tree} that converts child-node to
-integer IDs, separates leaf prediction values and split gain into their own
-columns, and adds a Boolean distinguishing decision from leaf nodes. Used by \code{\link[=make_boosted]{make_boosted()}}.
+A wrapper around \code{xgboost::xgb.model.dt.tree} that standardizes the
+output into a consistent schema for downstream use by
+\code{\link{make_boosted}} and \code{\link{prepare_harvest}}. Child-node
+references are coerced to integer IDs; leaf prediction values and split
+gain are extracted into dedicated columns; and a logical \code{Leaf} column
+is added to distinguish decision nodes from leaf nodes. The function
+handles variability in \code{xgboost} dump column names across versions (e.g.,
+\code{Quality} vs. \code{Gain}) and fills missing columns with \code{NA}
+so that the returned schema is always identical regardless of model version.
 }
 \keyword{internal}

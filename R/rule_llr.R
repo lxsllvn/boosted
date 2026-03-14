@@ -23,8 +23,6 @@
 #'   indicate depletion.
 #'
 #' @keywords internal
-#'
-#' @examples
 
 .rule_llr <- function(n_extreme,
                       n_bg,

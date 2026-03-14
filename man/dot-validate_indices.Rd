@@ -2,7 +2,7 @@
 % Please edit documentation in R/validate_indices.R
 \name{.validate_indices}
 \alias{.validate_indices}
-\title{Title}
+\title{Validate training and test extreme and background index sets}
 \usage{
 .validate_indices(
   n_yvar_train,
@@ -15,9 +15,32 @@
 )
 }
 \arguments{
-\item{caller}{}
+\item{n_yvar_train}{Positive integer: total number of training SNPs.}
+
+\item{extr_idx_train}{Integer vector: extreme training SNP indices.}
+
+\item{bg_idx_train}{Integer vector: background training SNP indices.}
+
+\item{n_yvar_test}{Positive integer: total number of test SNPs.}
+
+\item{extr_idx_test}{Integer vector: extreme test SNP indices.}
+
+\item{bg_idx_test}{Integer vector: background test SNP indices.}
+
+\item{caller}{Character scalar: name of the calling function, included in
+error messages.}
+}
+\value{
+A named list with elements \code{extr_idx_train},
+\code{bg_idx_train}, \code{extr_idx_test}, \code{bg_idx_test}
+(validated, sorted integer vectors) and integer scalars
+\code{N_extr_train}, \code{N_bg_train}, \code{N_extr_test},
+\code{N_bg_test}, \code{N_index_train}, \code{N_index_test}.
 }
 \description{
-Title
+Calls \code{.check_idx} on each of the four index vectors, then checks that
+the extreme and background sets within each partition are disjoint. Returns
+the validated index vectors together with pre-computed set-size scalars used
+throughout the \code{boosted} object.
 }
 \keyword{internal}

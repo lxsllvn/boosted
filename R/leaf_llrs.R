@@ -40,8 +40,6 @@
 #'     position in \code{leaf_llrs_by_tree[[j]]}.}
 #' }
 #' @keywords internal
-#'
-#' @examples
 
 .leaf_llrs <- function(extr_idx,
                        bg_idx,
@@ -176,8 +174,7 @@
 #'   for the dense leaves of tree \code{t}. The format is identical to the
 #'   \code{leaf_llrs_by_tree} element returned by \code{.leaf_llrs}.
 #' @keywords internal
-#'
-#' @examples
+
 .leaf_llrs_fast <- function(perm_extr,
                             leaf_mat,
                             N_extr,

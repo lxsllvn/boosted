@@ -2,7 +2,7 @@
 % Please edit documentation in R/snp_lookup.R
 \name{.snp_lookup}
 \alias{.snp_lookup}
-\title{Internal dispatcher for snp_lookup}
+\title{Internal dispatcher for \code{.snp_lookup_R}}
 \usage{
 .snp_lookup(
   pairs,
@@ -13,6 +13,10 @@
 )
 }
 \description{
-Internal dispatcher for snp_lookup
+Calls the Rcpp implementation \code{.snp_lookup_rcpp} when available,
+falling back to the pure-R \code{.snp_lookup_R}. See
+\code{\link{.snp_lookup_R}} for full parameter and return documentation,
+including notes on the legacy \code{snps_ext_by_leaf} and
+\code{snps_bg_by_leaf} parameters.
 }
 \keyword{internal}

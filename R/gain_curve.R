@@ -31,8 +31,6 @@
 #'     1 for a random ranker.}
 #' }
 #' @keywords internal
-#'
-#' @examples
 
 .gain_curve <- function(scores,
                         n,

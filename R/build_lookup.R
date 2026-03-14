@@ -1,25 +1,44 @@
-#' Leaf → SNP lookup maps for fast bucket assembly
+#' Build a leaf-to-SNP inverse index map
 #'
-#' Builds inverse indices for each tree: native leaf ID -> SNP indices.
-#' You can request any combination of extreme/background/all maps by supplying
-#' the corresponding inputs:
-#'   - extr_idx NULL or length 0 => skip/ext map returned as NULL
-#'   - bg_idx   NULL or length 0 => skip/bg map returned as NULL
-#'   - all NULL => skip/all map returned as NULL
+#' For each tree, inverts the SNP-to-leaf assignment recorded in
+#' \code{dense_leaf_ids} to produce a per-tree map from native leaf ID to the
+#' SNP indices that fell in that leaf. Currently only the all-SNP map
+#' (\code{snps_all_by_leaf}) is built in practice; downstream code uses
+#' vector masks on \code{\link{.snp_lookup}} output to separate extreme and
+#' background SNPs rather than maintaining separate maps. The \code{extr_idx}
+#' and \code{bg_idx} parameters are retained for compatibility but are not
+#' used by any current call site.
 #'
-#' NOTE: "all" follows historical semantics in boosted: any non-NULL value
-#' triggers building snps_all_by_leaf (including all SNPs).
+#' @param dense_leaf_ids List of length \code{Tm}. Element \code{t} is an
+#'   integer vector of length \eqn{n}{} (total SNPs in the relevant partition)
+#'   giving each SNP's 1-based dense leaf index in tree \code{t}, as produced
+#'   by \code{\link{.build_train_leaf_map}} or \code{\link{.build_test_leaf_map}}.
+#' @param native_leaf_ids List of length \code{Tm}. Element \code{t} is an
+#'   integer vector of length \eqn{L_t}{} mapping each dense leaf index to its
+#'   native `xgboost` leaf ID, as stored in
+#'   \code{train_leaf_map$native_leaf_ids}.
+#' @param extr_idx Legacy parameter, not currently used. Integer vector of
+#'   1-based SNP indices for the extreme set, or \code{NULL} (default) to skip
+#'   building the extreme map.
+#' @param bg_idx Legacy parameter, not currently used. Integer vector of
+#'   1-based SNP indices for the background set, or \code{NULL} (default) to
+#'   skip building the background map.
+#' @param all Pass any non-\code{NULL} value (e.g. \code{TRUE}) to build the
+#'   all-SNP map; \code{NULL} (default) skips it. Only the presence or absence
+#'   of this argument is checked — the value itself is ignored.
 #'
-#' @param dense_leaf_ids list<IntegerVector> per tree, length n (SNPs), values 1..L_t (dense leaf IDs)
-#' @param native_leaf_ids list<IntegerVector> per tree, length L_t, mapping dense leaf ID -> native leaf ID
-#' @param extr_idx integer vector of SNP indices (1-based) for extremes (or NULL)
-#' @param bg_idx integer vector of SNP indices (1-based) for background (or NULL)
-#' @param all NULL (skip) or any non-NULL value (build all)
-#' @param use_rcpp logical; use Rcpp implementation if available
-#'
-#' @return list(snps_ext_by_leaf, snps_bg_by_leaf, snps_all_by_leaf) where omitted maps are NULL
+#' @return A named list with three elements. Elements for which the
+#'   corresponding input was \code{NULL} are returned as \code{NULL}:
+#' \describe{
+#'   \item{\code{snps_ext_by_leaf}}{List of length \code{Tm}. Element \code{t}
+#'     is a named list keyed by native leaf ID (as character), where each
+#'     entry is an integer vector of the extreme SNP indices that fell in that
+#'     leaf in tree \code{t}.}
+#'   \item{\code{snps_bg_by_leaf}}{As above, for background SNPs.}
+#'   \item{\code{snps_all_by_leaf}}{As above, for all SNPs (labelled and
+#'     unlabelled).}
+#' }
 #' @keywords internal
-NULL
 
 .build_lookup_R <- function(dense_leaf_ids,
                             native_leaf_ids,
@@ -28,6 +47,13 @@ NULL
                             all      = NULL) {
 
   Tm <- length(dense_leaf_ids)
+
+  # TODO: extr_idx/bg_idx and their corresponding map branches are legacy code
+  # from an earlier design that maintained three separate lookup objects. The
+  # current approach builds only snps_all_by_leaf and uses vector masks in the
+  # calling code (e.g. in validate_rules) to separate extreme and background
+  # SNPs. Consider simplifying the signature to remove these parameters and the
+  # dead branches below.
 
   have_ext <- !is.null(extr_idx) && length(extr_idx) > 0L
   have_bg  <- !is.null(bg_idx)   && length(bg_idx)   > 0L
@@ -79,7 +105,15 @@ NULL
   )
 }
 
-#' Internal dispatcher for build_lookup
+#' Internal dispatcher for \code{.build_lookup_R}
+#'
+#' Calls the Rcpp implementation \code{.build_lookup_rcpp} when available,
+#' falling back to the pure-R \code{.build_lookup_R}. The \code{all} argument
+#' is coerced to a logical before being passed to the Rcpp layer, which
+#' expects a scalar \code{SEXP} rather than an arbitrary sentinel value.
+#' See \code{\link{.build_lookup_R}} for full parameter and return
+#' documentation.
+#'
 #' @keywords internal
 .build_lookup <- function(dense_leaf_ids,
                           native_leaf_ids,

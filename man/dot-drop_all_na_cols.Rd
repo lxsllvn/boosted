@@ -17,3 +17,4 @@ are retained.
 \description{
 Drop entirely-NA columns from a data.table
 }
+\keyword{internal}

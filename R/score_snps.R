@@ -28,8 +28,6 @@
 #'     receive \code{NA}.}
 #' }
 #' @keywords internal
-#'
-#' @examples
 
 .score_snps_r <- function(test_leaf_map,
                           leaf_llrs_by_tree,

@@ -13,7 +13,7 @@
 #' @return Integer scalar: the maximum number of split-steps from root to leaf
 #'   observed across the entire ensemble.
 #' @keywords internal
-#' @examples
+
 .infer_max_depth <- function(tdt) {
   trees <- sort(unique(as.integer(tdt$Tree)))
   max_depth <- 0L

@@ -2,32 +2,61 @@
 % Please edit documentation in R/build_rule_caches.R
 \name{.build_rule_cache}
 \alias{.build_rule_cache}
-\title{Build a rule cache from a parsed xgboost tree table}
+\title{Build a rule cache from a parsed and binned \code{xgboost} tree table}
 \usage{
 .build_rule_cache(tdt, max_depth, tighten_monotone = TRUE)
 }
 \arguments{
-\item{tdt}{the parsed \code{xgboost} tree table produced by \code{boosted::prepare_harvest}, with columns
-\code{Tree}, \code{ID}, \code{Feature}, \code{Split}, \code{Yes}, \code{No}, \code{Missing}, \code{Leaf}, \code{Split_bin}.}
+\item{tdt}{A \code{data.table} produced by \code{\link{.parse_xgb_tree}}
+and subsequently annotated by \code{\link{prepare_harvest}} with a
+\code{Split_bin} column. Required columns: \code{Tree}, \code{ID},
+\code{Feature}, \code{Split_bin}, \code{Yes}, \code{No}, and \code{Leaf}.}
 
-\item{max_depth}{maximum number of decision nodes to include in rule strings. Must be <=}
+\item{max_depth}{Positive integer. Maximum number of split-steps to include
+in any rule prefix. Rules for leaves deeper than \code{max_depth} are
+truncated at \code{max_depth} splits; \code{leaf_depth} is still recorded
+faithfully for all leaves regardless of the cap.}
 
-\item{tighten_monotone}{If \code{TRUE}, collapse repeated monotone bounds per
-feature and direction to the tightest bound.}
+\item{tighten_monotone}{Logical. If \code{TRUE} (default), redundant
+monotone constraints on the same feature and direction within a prefix are
+collapsed to the tightest bound. For example, \code{x < 5 | x < 3}
+becomes \code{x < 3}.}
 }
 \value{
-A \code{data.table} with one row per \verb{(Tree, leaf_id, rule_len)}, where \code{rule_len} is an integer ranging from 1, ..., min(max_depth, leaf_depth).
-\itemize{
-\item \code{Tree}: unique integer ID denoting each tree in the model (zero-based
-index)
-\item \code{leaf_id}: unique integer ID of each leaf in a given \code{Tree}.
-\item \code{leaf_depth}: the actual number of decision nodes traversed from the root to this leaf.
-\item \code{rule_len}: the number of decision nodes represented by this rule.
-\item \code{n_clauses}: the realized length of the rule after tightening monotonic constraints.
-\item \code{rule_str}: a character string of the ordered split conditions comprising this rule. Rule strings follow the format of "feature {< | => } threshold" and multiple conditions are joined by "|".
+A \code{data.table} with one row per \code{(Tree, leaf_id,
+  rule_len)} combination, indexed (not keyed) on \code{rule_str},
+\code{(Tree, leaf_id)}, and \code{(rule_len, rule_str)} for fast joins.
+Columns:
+\describe{
+\item{\code{Tree}}{Integer. Zero-based tree index, matching
+\code{boosted$tdt$Tree}.}
+\item{\code{leaf_id}}{Integer. Native \code{xgboost} node ID of the leaf,
+matching \code{boosted$tdt$ID} for leaf rows.}
+\item{\code{leaf_depth}}{Integer. Total number of split-steps from the
+root to this leaf (regardless of \code{max_depth}).}
+\item{\code{rule_len}}{Integer. Number of split-steps included in this
+rule prefix (\eqn{1 \le \text{rule\_len} \le \min(\text{max\_depth},
+    \text{leaf\_depth})}{}).}
+\item{\code{n_clauses}}{Integer. Number of distinct split conditions in
+\code{rule_str} after monotone tightening (may be less than
+\code{rule_len} when tightening collapses redundant conditions).}
+\item{\code{rule_str}}{Character. The rule string: an ordered,
+pipe-delimited sequence of split conditions of the form
+\code{"feature >= threshold"} or \code{"feature < threshold"}, where
+thresholds are binned midpoints formatted in scientific notation.}
 }
 }
 \description{
-Build a rule cache from a parsed xgboost tree table
+Traverses every tree in \code{tdt} depth-first, recording the sequence of
+split conditions encountered on the path from root to each leaf. For every
+leaf, all prefix rules of length \eqn{1, \ldots, \min(\text{max\_depth},
+\text{leaf\_depth})}{} are materialized as character strings and stored
+alongside the leaf's \code{(Tree, leaf_id)} identity. Split thresholds are
+taken from the \code{Split_bin} column (the binned values added by
+\code{\link{prepare_harvest}}) rather than the raw \code{Split} values,
+so that rules are expressed in terms of stable, interpretable bin
+midpoints. When \code{tighten_monotone = TRUE}, multiple constraints on the
+same feature and direction within a single prefix are collapsed to the
+tightest bound, removing logically redundant clauses.
 }
 \keyword{internal}

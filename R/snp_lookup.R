@@ -1,19 +1,45 @@
-#' SNP lookup for rule buckets
+#' Collect unique SNP indices for a set of \code{(Tree, leaf_id)} pairs
 #'
-#' Given a data.table/data.frame of (Tree, leaf_id) pairs, return the unique SNP
-#' indices captured by those leaves, optionally split into extreme/background/all
-#' universes depending on which lookup maps are provided.
+#' Given a table of \code{(Tree, leaf_id)} pairs, looks up the SNP indices
+#' that fell in each leaf using the all-SNP inverse map and returns their
+#' union (deduplicated) across all supplied pairs. Deduplication ensures that
+#' a SNP counted by the same rule via multiple trees is not double-counted
+#' when computing rule support. Currently only \code{snps_all_by_leaf} is
+#' used in practice; downstream code (e.g. \code{\link{validate_rules}})
+#' applies vector masks to \code{bucket_all} to separate extreme and
+#' background SNPs rather than maintaining separate maps. The
+#' \code{snps_ext_by_leaf} and \code{snps_bg_by_leaf} parameters are
+#' retained for compatibility but are not used by any current call site.
 #'
-#' @param pairs data.frame/data.table with columns Tree (0-based) and leaf_id (native)
-#' @param snps_ext_by_leaf list-of-lists mapping tree -> leaf_id -> integer SNP indices (or NULL)
-#' @param snps_bg_by_leaf  list-of-lists mapping tree -> leaf_id -> integer SNP indices (or NULL)
-#' @param snps_all_by_leaf list-of-lists mapping tree -> leaf_id -> integer SNP indices (or NULL)
+#' @param pairs A \code{data.frame} or \code{data.table} with at least two
+#'   columns: \code{Tree} (0-based integer tree index, matching `xgboost`
+#'   convention) and \code{leaf_id} (native integer leaf ID, matching the keys
+#'   in the lookup maps).
+#' @param snps_ext_by_leaf Legacy parameter, not currently used.
+#'   List-of-lists mapping tree index (1-based) → native leaf ID (character)
+#'   → integer vector of extreme SNP indices, or \code{NULL} (default) to
+#'   skip.
+#' @param snps_bg_by_leaf Legacy parameter, not currently used. As
+#'   \code{snps_ext_by_leaf}, for background SNPs, or \code{NULL} (default)
+#'   to skip.
+#' @param snps_all_by_leaf List-of-lists mapping tree index (1-based) →
+#'   native leaf ID (character) → integer vector of all SNP indices
+#'   (labelled and unlabelled), as built by \code{\link{.build_lookup_R}} and
+#'   stored in \code{boosted$snps_all_by_leaf_train} or
+#'   \code{boosted$snps_all_by_leaf_test}. \code{NULL} to skip.
 #'
-#' @return list(bucket_ext, bucket_bg, bucket_all)
+#' @return A named list with three elements:
+#' \describe{
+#'   \item{\code{bucket_all}}{Integer vector of unique SNP indices (labelled
+#'     and unlabelled) covered by the supplied pairs. \code{integer(0)} if
+#'     \code{snps_all_by_leaf} was \code{NULL} or no matching SNPs were
+#'     found.}
+#'   \item{\code{bucket_ext}}{Always \code{integer(0)} under current usage
+#'     (legacy; see \code{snps_ext_by_leaf}).}
+#'   \item{\code{bucket_bg}}{Always \code{integer(0)} under current usage
+#'     (legacy; see \code{snps_bg_by_leaf}).}
+#' }
 #' @keywords internal
-#'
-#' @examples
-#'
 
 .snp_lookup_R <- function(pairs,
                           snps_ext_by_leaf = NULL,
@@ -29,6 +55,13 @@
                 bucket_bg  = bucket_bg,
                 bucket_all = bucket_all))
   }
+
+  # TODO: snps_ext_by_leaf/snps_bg_by_leaf and their corresponding bucket
+  # branches are legacy code from an earlier design that maintained three
+  # separate lookup objects. All current call sites pass only snps_all_by_leaf
+  # and use vector masks on bucket_all to separate extreme and background SNPs.
+  # Consider simplifying the signature and return value to remove the dead
+  # branches. Mirrors the equivalent dead code in .build_lookup_R.
 
   have_ext <- !is.null(snps_ext_by_leaf)
   have_bg  <- !is.null(snps_bg_by_leaf)
@@ -60,7 +93,14 @@
   )
 }
 
-#' Internal dispatcher for snp_lookup
+#' Internal dispatcher for \code{.snp_lookup_R}
+#'
+#' Calls the Rcpp implementation \code{.snp_lookup_rcpp} when available,
+#' falling back to the pure-R \code{.snp_lookup_R}. See
+#' \code{\link{.snp_lookup_R}} for full parameter and return documentation,
+#' including notes on the legacy \code{snps_ext_by_leaf} and
+#' \code{snps_bg_by_leaf} parameters.
+#'
 #' @keywords internal
 .snp_lookup <- function(pairs,
                         snps_ext_by_leaf = NULL,

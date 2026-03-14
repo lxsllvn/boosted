@@ -22,8 +22,6 @@
 #'     any test leaf ID was not present among the training leaves.}
 #' }
 #' @keywords internal
-#'
-#' @examples
 
 .build_test_leaf_map <- function(test_leaves,
                                  train_leaf_map) {

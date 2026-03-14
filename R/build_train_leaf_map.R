@@ -26,8 +26,6 @@
 #'     number of unique leaves in each tree.}
 #' }
 #' @keywords internal
-#'
-#' @examples
 
 .build_train_leaf_map <- function(train_leaves) {
   # number of trees

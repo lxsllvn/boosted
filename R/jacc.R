@@ -6,7 +6,7 @@
 #'   \code{NA} removed. Columns containing at least one non-\code{NA} value
 #'   are retained.
 #'
-#' @examples
+#' @keywords internal
 .drop_all_na_cols <- function(DT) {
   keep <- !vapply(DT, function(x)
     all(is.na(x)), logical(1))
