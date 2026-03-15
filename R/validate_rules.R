@@ -1,22 +1,55 @@
-#' Title
+#' Score and rank candidate rules by enrichment for extreme SNPs
 #'
-#' @description
+#' For each candidate rule, pools all \code{(Tree, leaf_id)} pairs in the
+#' ensemble where the rule occurs (via \code{boosted$leaf_rule_cache}), looks
+#' up the SNPs covered by those leaves, and computes enrichment statistics
+#' comparing the rule's extreme-to-background composition against the overall
+#' base rate. Rules with labeled support below \code{min_support} are
+#' silently dropped. By default, the terminal (deepest) rule of every leaf is
+#' evaluated; a curated subset can be supplied via \code{candidate_rules}.
 #'
-#' @param boosted
-#' @param which use the "train" or "test" data partition; "train" is used by default.
-#' @param min_support
-#' @param alpha
-#' @param candidate_rules
-#' @param fold_indices (optional) integer vector of SNP indices; if provided, the analysis is restricted to these SNPs. By default, all SNPs in "train" or "test" are used.
-#' @param compute_pvals (optional) if TRUE, return hypergeometric p-values under the null hypothesis that a rule enriches for extreme SNPs at the baseline rate. By default, p-values are only returned if which = "test".
-#' @param progress_every (optional) print an update message after every N evaluated rules.
-#' @param return_ledger
+#' @param min_support Positive integer. Minimum number of labelled SNPs
+#'   (extreme + background) a rule must cover to be included in the output.
+#' @param compute_pvals Logical or \code{NULL}. If \code{TRUE}, a one-sided
+#'   hypergeometric p-value is computed for each rule under the null hypothesis
+#'   that it captures extreme SNPs at the background base rate. \code{NULL}
+#'   (default) computes p-values only when \code{which = "test"}.
+#' @param return_ledger Logical. If \code{TRUE}, returns a named list
+#'   containing the rule table (\code{R}), the full \code{pairs_all}
+#'   \code{data.table} mapping rule strings to \code{(Tree, leaf_id)} pairs,
+#'   and a \code{meta} list with fold-level counts. If \code{FALSE} (default),
+#'   returns only the rule table.
+#' @inheritParams .boosted_params
 #'
-#' @return
+#' @return When \code{return_ledger = FALSE} (default): a \code{data.table}
+#'   with one row per rule string surviving the \code{min_support} filter,
+#'   ordered by p-value (if computed) then by lift, recall, and precision.
+#'   Columns:
+#' \describe{
+#'   \item{\code{rule_str}}{Character. The rule string.}
+#'   \item{\code{n_clauses}}{Integer. Number of distinct split conditions in
+#'     the rule after monotone tightening.}
+#'   \item{\code{n_extreme}, \code{n_bg}}{Integer. Extreme and background SNP
+#'     counts within the rule's SNP bucket.}
+#'   \item{\code{support_labeled}}{Integer. Total labelled SNPs in the bucket
+#'     (\code{n_extreme + n_bg}).}
+#'   \item{\code{support_all}}{Integer. Total SNPs in the bucket (labelled and
+#'     unlabelled).}
+#'   \item{\code{enrichment}}{Numeric. Rule-level LLR with Jeffreys smoothing
+#'     (see \code{.rule_llr}).}
+#'   \item{\code{precision}}{Numeric. \code{n_extreme / support_labeled}.}
+#'   \item{\code{recall}}{Numeric. \code{n_extreme / N_extr}.}
+#'   \item{\code{lift}}{Numeric. \code{precision / base_rate}.}
+#'   \item{\code{pval}}{Numeric. One-sided hypergeometric p-value; \code{NA}
+#'     if \code{compute_pvals = FALSE}.}
+#'   \item{\code{med_y_extreme}, \code{med_y_bg}, \code{med_y_overall}}{
+#'     Numeric. Median response values for extreme, background, and all SNPs
+#'     in the bucket.}
+#' }
+#'   When \code{return_ledger = TRUE}: a named list with elements \code{R}
+#'   (the table above), \code{pairs_all}, and \code{meta}.
 #' @import data.table
 #' @export
-#'
-#' @examples
 validate_rules <- function(boosted,
                            which = c("train", "test"),
                            min_support     = 1L,
@@ -94,28 +127,47 @@ validate_rules <- function(boosted,
 
   uniq_rules  <- rules$candidate_rules
   pairs_all   <- rules$pairs_all
-  data.table::setindex(pairs_all, rule_str)
+  pairs_by_rule <- split(pairs_all, by = "rule_str")
 
-  # Container for results
-  pooled     <- vector("list", length(uniq_rules))
+  # Pre-allocate output vectors — one slot per candidate rule.
+  # Filled by index inside the loop; rows where keep[i] = FALSE are skipped
+  # rules (empty bucket or below min_support) and are excluded when building
+  # the final data.table.
+  n_rules         <- length(uniq_rules)
+  keep            <- logical(n_rules)
+
+  out_rule_str    <- character(n_rules)
+  out_n_clauses   <- integer(n_rules)
+  out_n_e         <- integer(n_rules)
+  out_n_b         <- integer(n_rules)
+  out_support_lab <- integer(n_rules)
+  out_support_all <- integer(n_rules)
+  out_enrichment  <- numeric(n_rules)
+  out_precision   <- numeric(n_rules)
+  out_recall      <- numeric(n_rules)
+  out_lift        <- numeric(n_rules)
+  out_pval        <- rep(NA_real_, n_rules)
+  out_med_e       <- numeric(n_rules)
+  out_med_b       <- numeric(n_rules)
+  out_med_o       <- numeric(n_rules)
 
   # For each rule string, pool all (Tree, leaf_ids) in the ensemble where it
   # occurs, then use the look-up to count the labeled (extreme, background) and
   # unlabeled SNPs in these leaves.
   for (i in seq_along(uniq_rules)) {
-    rs    <- uniq_rules[i]
-    n_clauses <- pairs_all[rule_str == rs, n_clauses][1L]
+    rs        <- uniq_rules[i]
+    pr        <- pairs_by_rule[[rs]]
+    n_clauses <- pr$n_clauses[1L]
 
     # All (Tree, leaf_id) pairs under this rule in the ensemble
-    pairs <- unique(pairs_all[rule_str == rs, .(Tree, leaf_id)])
-    if (!nrow(pairs))
+    if (!nrow(pr))
       next
 
     # Look up SNP indices covered by these (Tree, leaf_id) pairs.
     # .snp_lookup() handles deduplication (no double-counting SNPs
     # that land in the same rule via multiple trees).
     buckets <- .snp_lookup(
-      pairs            = pairs,
+      pairs            = pr,
       snps_all_by_leaf = snps_all_by_leaf
     )
     bucket_all <- buckets$bucket_all
@@ -186,25 +238,22 @@ validate_rules <- function(boosted,
       alpha        = alpha
     )
 
-    pooled[[i]] <- data.table::data.table(
-      rule_str        = rs,
-      n_clauses       = as.integer(n_clauses),
-
-      n_extreme       = as.integer(n_e),
-      n_bg            = as.integer(n_b),
-      support_labeled = as.integer(support),
-      support_all     = as.integer(support_all),
-
-      enrichment = as.numeric(enrichment),
-      precision  = as.numeric(precision),
-      recall     = as.numeric(recall),
-      lift       = as.numeric(lift),
-      pval       = as.numeric(pval),
-
-      med_y_extreme = as.numeric(med_e),
-      med_y_bg      = as.numeric(med_b),
-      med_y_overall = as.numeric(med_o)
-    )
+    # Store results in pre-allocated vectors
+    keep[i]            <- TRUE
+    out_rule_str[i]    <- rs
+    out_n_clauses[i]   <- as.integer(n_clauses)
+    out_n_e[i]         <- as.integer(n_e)
+    out_n_b[i]         <- as.integer(n_b)
+    out_support_lab[i] <- as.integer(support)
+    out_support_all[i] <- as.integer(support_all)
+    out_enrichment[i]  <- as.numeric(enrichment)
+    out_precision[i]   <- as.numeric(precision)
+    out_recall[i]      <- as.numeric(recall)
+    out_lift[i]        <- as.numeric(lift)
+    out_pval[i]        <- as.numeric(pval)
+    out_med_e[i]       <- as.numeric(med_e)
+    out_med_b[i]       <- as.numeric(med_b)
+    out_med_o[i]       <- as.numeric(med_o)
 
     # Optional progress over rule space
     if (!is.null(progress_every) && progress_every > 0L &&
@@ -221,7 +270,23 @@ validate_rules <- function(boosted,
     }
   }
 
-  R_tbl <- data.table::rbindlist(pooled, use.names = TRUE, fill = TRUE)
+  # Build output table in one shot from pre-allocated vectors
+  R_tbl <- data.table::data.table(
+    rule_str        = out_rule_str[keep],
+    n_clauses       = out_n_clauses[keep],
+    n_extreme       = out_n_e[keep],
+    n_bg            = out_n_b[keep],
+    support_labeled = out_support_lab[keep],
+    support_all     = out_support_all[keep],
+    enrichment      = out_enrichment[keep],
+    precision       = out_precision[keep],
+    recall          = out_recall[keep],
+    lift            = out_lift[keep],
+    pval            = out_pval[keep],
+    med_y_extreme   = out_med_e[keep],
+    med_y_bg        = out_med_b[keep],
+    med_y_overall   = out_med_o[keep]
+  )
   if (!nrow(R_tbl)) {
     warning(sprintf(
       "[%s] no pooled rules on %s (after min_support filtering).",

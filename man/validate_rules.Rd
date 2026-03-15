@@ -2,7 +2,7 @@
 % Please edit documentation in R/validate_rules.R
 \name{validate_rules}
 \alias{validate_rules}
-\title{Title}
+\title{Score and rank candidate rules by enrichment for extreme SNPs}
 \usage{
 validate_rules(
   boosted,
@@ -17,16 +17,80 @@ validate_rules(
 )
 }
 \arguments{
-\item{which}{use the "train" or "test" data partition; "train" is used by default.}
+\item{boosted}{A \code{boosted} object returned by \code{\link{make_boosted}},
+or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
 
-\item{fold_indices}{(optional) integer vector of SNP indices; if provided, the analysis is restricted to these SNPs. By default, all SNPs in "train" or "test" are used.}
+\item{which}{Character string, one of \code{"train"} or \code{"test"}.
+Selects which data partition to use for SNP bucket assembly and scoring.}
 
-\item{compute_pvals}{(optional) if TRUE, return hypergeometric p-values under the null hypothesis that a rule enriches for extreme SNPs at the baseline rate. By default, p-values are only returned if which = "test".}
+\item{min_support}{Positive integer. Minimum number of labelled SNPs
+(extreme + background) a rule must cover to be included in the output.}
 
-\item{progress_every}{(optional) print an update message after every N evaluated rules.}
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration applied
+when smoothing leaf-level count ratios into log-likelihood ratios. When
+\code{alpha = 0} a small epsilon floor is used to avoid \code{log(0)};
+the default \code{alpha = 0.5} corresponds to the symmetric Jeffreys prior.}
 
-\item{return_ledger}{}
+\item{candidate_rules}{Optional character vector of rule strings. Each
+string must be present in \code{boosted$leaf_rule_cache} (built by
+\code{\link{prepare_harvest}}). If \code{NULL}, the terminal (longest)
+rule of every leaf in the ensemble is used.}
+
+\item{fold_indices}{Optional integer vector of SNP indices (1-based). If
+supplied, the analysis is restricted to these SNPs; extreme and background
+label sets are intersected with \code{fold_indices} before scoring. By
+default all SNPs in the selected partition are used.}
+
+\item{compute_pvals}{Logical or \code{NULL}. If \code{TRUE}, a one-sided
+hypergeometric p-value is computed for each rule under the null hypothesis
+that it captures extreme SNPs at the background base rate. \code{NULL}
+(default) computes p-values only when \code{which = "test"}.}
+
+\item{progress_every}{Optional positive integer. If supplied, a progress
+message is printed to the console after every \code{progress_every}
+iterations. \code{NULL} (default) suppresses progress messages.}
+
+\item{return_ledger}{Logical. If \code{TRUE}, returns a named list
+containing the rule table (\code{R}), the full \code{pairs_all}
+\code{data.table} mapping rule strings to \code{(Tree, leaf_id)} pairs,
+and a \code{meta} list with fold-level counts. If \code{FALSE} (default),
+returns only the rule table.}
+}
+\value{
+When \code{return_ledger = FALSE} (default): a \code{data.table}
+with one row per rule string surviving the \code{min_support} filter,
+ordered by p-value (if computed) then by lift, recall, and precision.
+Columns:
+\describe{
+\item{\code{rule_str}}{Character. The rule string.}
+\item{\code{n_clauses}}{Integer. Number of distinct split conditions in
+the rule after monotone tightening.}
+\item{\code{n_extreme}, \code{n_bg}}{Integer. Extreme and background SNP
+counts within the rule's SNP bucket.}
+\item{\code{support_labeled}}{Integer. Total labelled SNPs in the bucket
+(\code{n_extreme + n_bg}).}
+\item{\code{support_all}}{Integer. Total SNPs in the bucket (labelled and
+unlabelled).}
+\item{\code{enrichment}}{Numeric. Rule-level LLR with Jeffreys smoothing
+(see \code{.rule_llr}).}
+\item{\code{precision}}{Numeric. \code{n_extreme / support_labeled}.}
+\item{\code{recall}}{Numeric. \code{n_extreme / N_extr}.}
+\item{\code{lift}}{Numeric. \code{precision / base_rate}.}
+\item{\code{pval}}{Numeric. One-sided hypergeometric p-value; \code{NA}
+if \code{compute_pvals = FALSE}.}
+\item{\code{med_y_extreme}, \code{med_y_bg}, \code{med_y_overall}}{
+Numeric. Median response values for extreme, background, and all SNPs
+in the bucket.}
+}
+When \code{return_ledger = TRUE}: a named list with elements \code{R}
+(the table above), \code{pairs_all}, and \code{meta}.
 }
 \description{
-Title
+For each candidate rule, pools all \code{(Tree, leaf_id)} pairs in the
+ensemble where the rule occurs (via \code{boosted$leaf_rule_cache}), looks
+up the SNPs covered by those leaves, and computes enrichment statistics
+comparing the rule's extreme-to-background composition against the overall
+base rate. Rules with labeled support below \code{min_support} are
+silently dropped. By default, the terminal (deepest) rule of every leaf is
+evaluated; a curated subset can be supplied via \code{candidate_rules}.
 }
