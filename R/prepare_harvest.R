@@ -86,7 +86,7 @@ prepare_harvest <- function(boosted,
 
   if (!inherits(boosted, "boosted")) {
     stop(sprintf(
-      "[%s]Input must be an object of class 'boosted' (from make_boosted())",
+      "[%s] Input must be an object of class 'boosted' (from make_boosted())",
       FUN
     ))
   }
@@ -164,12 +164,6 @@ prepare_harvest <- function(boosted,
       format(Sys.time(), "%Y-%m-%d %H:%M:%S")
     ))
   }
-
-  # Per-feature breakpoints and bin midpoints are stored in environments
-  # keyed by feature name, then attached to boosted as harvest_bins.
-  # Only internal nodes with finite splits
-  splits <- tdt[!Leaf & is.finite(Split) & nzchar(Feature) & Feature != "Leaf"]
-  feats  <- sort(unique(splits$Feature))
 
   # Environments keyed by feature
   breaks_env <- new.env(parent = emptyenv())
