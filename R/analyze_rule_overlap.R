@@ -41,8 +41,6 @@
 #'     \code{fold_n_extr}, and \code{fold_n_bg}.}
 #' }
 #' @export
-#'
-#' @examples
 analyze_rule_overlap <- function(boosted,
                                  candidate_rules = NULL,
                                  which = c("train", "test"),
@@ -102,11 +100,11 @@ analyze_rule_overlap <- function(boosted,
     caller          = FUN
   )
 
-  pairs_all <- rules$pairs_all
-  data.table::setindex(pairs_all, rule_str)
+  uniq_rules  <- rules$candidate_rules
+  pairs_all   <- rules$pairs_all
 
   # Rule universe for overlap
-  rule_ids <- sort(rules$candidate_rules)
+  rule_ids <- sort(unique(pairs_all$rule_str))
   K <- length(rule_ids)
 
   if (K < 2L) {
@@ -114,8 +112,24 @@ analyze_rule_overlap <- function(boosted,
     return(invisible(NULL))
   }
 
-  # Precompute buckets per rule (fold-restricted)
+  # Pre-split pairs_all by rule_str once to avoid repeated forderv calls
+  # inside the bucket-building loop
+  pairs_by_rule <- split(pairs_all, by = "rule_str")
+
+  # n_clauses per rule, in rule_ids order, for inclusion in overlap_tbl
+  n_clauses_by_rule <- vapply(
+    rule_ids,
+    function(rs) pairs_by_rule[[rs]]$n_clauses[1L],
+    integer(1L)
+  )
+
+  # Precompute buckets per rule (fold-restricted) and counts
+  bucket_ext <- vector("list", K)
+  bucket_bg  <- vector("list", K)
   bucket_all <- vector("list", K)
+  n_all <- integer(K)
+  n_ext <- integer(K)
+  n_bg  <- integer(K)
 
   # Map global SNP index -> element id within the A/B universes (1..N_extr / 1..N_bg)
   map_ext <- integer(n_tot); map_ext[extr_idx] <- seq_along(extr_idx)
@@ -129,11 +143,7 @@ analyze_rule_overlap <- function(boosted,
     rs <- rule_ids[k]
 
     # All (Tree, leaf_id) pairs under this rule
-    pairs <- unique(pairs_all[data.table::data.table(rule_str = rs),
-                              on = "rule_str",
-                              nomatch = 0L,
-                              .(Tree, leaf_id)],
-                    by = c("Tree", "leaf_id"))
+    pairs <- pairs_by_rule[[rs]]
 
     # Look up SNP indices covered by these (Tree, leaf_id) pairs.
     # .snp_lookup() handles deduplication (no double-counting SNPs
@@ -149,11 +159,21 @@ analyze_rule_overlap <- function(boosted,
     }
     bucket_all[[k]] <- b
 
-    # Convert global SNP indices to consecutive element IDs for MILP
+    # Split buckets into extreme/background subsets (fold-restricted)
+    # Needed for tcrossprod-based intersections
     if (length(b)) {
-      A_sets[[k]] <- map_ext[b[is_extreme[b]]]
-      B_sets[[k]] <- map_bg[b[is_bg[b]]]
+      a <- b[is_extreme[b]]
+      g <- b[is_bg[b]]
+
+      bucket_ext[[k]] <- a
+      bucket_bg[[k]]  <- g
+
+      # convert global SNP indices to consecutive element IDs for MILP
+      A_sets[[k]] <- map_ext[a]
+      B_sets[[k]] <- map_bg[g]
     } else {
+      bucket_ext[[k]] <- integer(0)
+      bucket_bg[[k]]  <- integer(0)
       A_sets[[k]] <- integer(0)
       B_sets[[k]] <- integer(0)
     }
@@ -243,10 +263,22 @@ analyze_rule_overlap <- function(boosted,
   dimnames(J_ext) <- list(labs, labs)
   dimnames(J_bg)  <- list(labs, labs)
 
-  # Extract upper triangle indices (i < j pairs)
-  ij      <- which(upper.tri(I_all), arr.ind = TRUE)
-  i_index <- ij[, 1L]
-  j_index <- ij[, 2L]
+  # Also build a rich long-form overlap table:
+  # for each (i,j) we store intersection sizes and directional proportions.
+  n_pairs <- K * (K - 1L) / 2L
+
+  i_index <- integer(n_pairs)
+  j_index <- integer(n_pairs)
+
+  # Fill (i,j) indices for i < j without allocating large row()/col() matrices
+  pos <- 1L
+  for (i in seq_len(K - 1L)) {
+    nj <- K - i
+    idx <- pos:(pos + nj - 1L)
+    i_index[idx] <- i
+    j_index[idx] <- (i + 1L):K
+    pos <- pos + nj
+  }
 
   # Extract intersections for i < j
   inter_all <- I_all[cbind(i_index, j_index)]
@@ -298,8 +330,10 @@ analyze_rule_overlap <- function(boosted,
     )
 
     overlap_tbl <- data.table::data.table(
-      i_index = i_index,
-      j_index = j_index,
+      i_index   = i_index,
+      j_index   = j_index,
+      n_clauses_i = as.integer(n_clauses_by_rule[i_index]),
+      n_clauses_j = as.integer(n_clauses_by_rule[j_index]),
 
       # bucket sizes (all SNPs)
       n_all_i = n_all_i,
