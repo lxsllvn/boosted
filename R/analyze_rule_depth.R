@@ -40,8 +40,6 @@
 #'   \item{\code{frac_trees}}{Numeric. \code{n_trees / Tm}.}
 #' }
 #' @export
-#'
-#' @examples
 
 analyze_rule_depth <- function(boosted,
                                candidate_rules,
@@ -132,38 +130,59 @@ analyze_rule_depth <- function(boosted,
                                         n_clauses = n_clauses
                                       )],
                       by = c("rule_str", "Tree", "leaf_id"))
-  data.table::setindex(ens_pairs, rule_str)
-
   ens_meta <- ens_pairs[, list(
     n_leaf_occurrences = .N,
     n_trees            = data.table::uniqueN(Tree),
     n_clauses          = n_clauses[[1L]]
   ), by = list(rule_str)]
-  data.table::setindex(ens_meta, rule_str)
 
   n_trees_total <- data.table::uniqueN(leaf_rule_cache$Tree)
 
-  # Container for results
-  pooled <- vector("list", length(rules_to_score))
+  # Pre-split both tables by rule_str once to avoid repeated forderv calls
+  # inside the loop
+  ens_pairs_by_rule <- split(ens_pairs, by = "rule_str")
+  ens_meta_by_rule  <- split(ens_meta,  by = "rule_str")
+
+  # Pre-allocate output vectors — one slot per rule to score.
+  # Filled by index inside the loop; rows where keep[i] = FALSE are skipped
+  # rules (empty bucket) and are excluded when building the final data.table.
+  n_rules            <- length(rules_to_score)
+  keep               <- logical(n_rules)
+
+  out_rule_str       <- character(n_rules)
+  out_n_clauses      <- integer(n_rules)
+  out_n_e            <- integer(n_rules)
+  out_n_b            <- integer(n_rules)
+  out_support_lab    <- integer(n_rules)
+  out_support_all    <- integer(n_rules)
+  out_enrichment     <- numeric(n_rules)
+  out_precision      <- numeric(n_rules)
+  out_recall         <- numeric(n_rules)
+  out_lift           <- numeric(n_rules)
+  out_med_e          <- numeric(n_rules)
+  out_med_b          <- numeric(n_rules)
+  out_med_o          <- numeric(n_rules)
+  out_n_leaf_occ     <- integer(n_rules)
+  out_n_trees        <- integer(n_rules)
+  out_frac_trees     <- numeric(n_rules)
 
   # For each rule string, pool all (Tree, leaf_ids) in the ensemble where it
   # occurs, then use the look-up to count the labeled (extreme, background) and
   # unlabeled SNPs in these leaves.
   for (i in seq_along(rules_to_score)) {
-    rs <- rules_to_score[[i]]
-
-    meta <- ens_meta[rule_str == rs]
-    if (!nrow(meta)) next
+    rs   <- rules_to_score[[i]]
+    meta <- ens_meta_by_rule[[rs]]
+    if (is.null(meta) || !nrow(meta)) next
 
     # All (Tree, leaf_id) pairs under this rule in the ensemble
-    pairs <- ens_pairs[rule_str == rs, list(Tree = Tree, leaf_id = leaf_id)]
-    if (!nrow(pairs)) next
+    pr <- ens_pairs_by_rule[[rs]]
+    if (is.null(pr) || !nrow(pr)) next
 
     # Look up SNP indices covered by these (Tree, leaf_id) pairs.
     # .snp_lookup() handles deduplication (no double-counting SNPs
     # that land in the same rule via multiple trees).
     pref_buckets <- .snp_lookup(
-      pairs            = pairs,
+      pairs            = pr,
       snps_all_by_leaf = snps_all_by_leaf
     )
     bucket_all <- pref_buckets$bucket_all
@@ -212,30 +231,24 @@ analyze_rule_depth <- function(boosted,
       alpha        = alpha
     )
 
-    # Add to results
-    pooled[[i]] <- data.table::data.table(
-      rule_str        = rs,
-      n_clauses       = as.integer(meta$n_clauses[1L]),
-
-      n_extreme       = as.integer(n_e),
-      n_bg            = as.integer(n_b),
-      support_labeled = as.integer(support),
-      support_all     = as.integer(support_all),
-
-      enrichment = as.numeric(enrichment),
-      precision  = as.numeric(precision),
-      recall     = as.numeric(recall),
-      lift       = as.numeric(lift),
-
-      med_y_extreme = as.numeric(med_e),
-      med_y_bg      = as.numeric(med_b),
-      med_y_overall = as.numeric(med_o),
-
-      # Ensemble metadata
-      n_leaf_occurrences = as.integer(meta$n_leaf_occurrences[[1L]]),
-      n_trees            = as.integer(meta$n_trees[[1L]]),
-      frac_trees         = as.numeric(meta$n_trees[[1L]] / n_trees_total)
-    )
+    # Store results in pre-allocated vectors
+    keep[i]            <- TRUE
+    out_rule_str[i]    <- rs
+    out_n_clauses[i]   <- as.integer(meta$n_clauses[1L])
+    out_n_e[i]         <- as.integer(n_e)
+    out_n_b[i]         <- as.integer(n_b)
+    out_support_lab[i] <- as.integer(support)
+    out_support_all[i] <- as.integer(support_all)
+    out_enrichment[i]  <- as.numeric(enrichment)
+    out_precision[i]   <- as.numeric(precision)
+    out_recall[i]      <- as.numeric(recall)
+    out_lift[i]        <- as.numeric(lift)
+    out_med_e[i]       <- as.numeric(med_e)
+    out_med_b[i]       <- as.numeric(med_b)
+    out_med_o[i]       <- as.numeric(med_o)
+    out_n_leaf_occ[i]  <- as.integer(meta$n_leaf_occurrences[[1L]])
+    out_n_trees[i]     <- as.integer(meta$n_trees[[1L]])
+    out_frac_trees[i]  <- as.numeric(meta$n_trees[[1L]] / n_trees_total)
 
     # Optional progress over rule space
     if (!is.null(progress_every) && progress_every > 0L &&
@@ -251,7 +264,25 @@ analyze_rule_depth <- function(boosted,
       )
     }
   }
-  R_tbl <- data.table::rbindlist(pooled, use.names = TRUE, fill = TRUE)
+  # Build output table in one shot from pre-allocated vectors
+  R_tbl <- data.table::data.table(
+    rule_str           = out_rule_str[keep],
+    n_clauses          = out_n_clauses[keep],
+    n_extreme          = out_n_e[keep],
+    n_bg               = out_n_b[keep],
+    support_labeled    = out_support_lab[keep],
+    support_all        = out_support_all[keep],
+    enrichment         = out_enrichment[keep],
+    precision          = out_precision[keep],
+    recall             = out_recall[keep],
+    lift               = out_lift[keep],
+    med_y_extreme      = out_med_e[keep],
+    med_y_bg           = out_med_b[keep],
+    med_y_overall      = out_med_o[keep],
+    n_leaf_occurrences = out_n_leaf_occ[keep],
+    n_trees            = out_n_trees[keep],
+    frac_trees         = out_frac_trees[keep]
+  )
 
   if (!nrow(R_tbl)) {
     warning(sprintf(
