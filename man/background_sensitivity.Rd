@@ -66,10 +66,10 @@ A named list with two elements:
 \item{\code{results}}{A \code{data.table} with one row per
 \code{(k, rep, frac_screened)} combination, containing columns
 \code{mode} (\code{"background"}), \code{k}, \code{rep},
-\code{score} (\code{"contrast"}), \code{bg_size_used},
+\code{bg_size_used},
 \code{frac_screened}, \code{n_screened}, \code{recall},
 \code{lift_curve}, and \code{score_threshold}.}
-\item{\code{summary}}{A \code{data.table} summarising mean and SD of
+\item{\code{summary}}{A \code{data.table} summarizing mean and SD of
 \code{lift_curve} and \code{recall} across replicates, grouped by
 \code{k}, \code{score}, and \code{frac_screened}.}
 }

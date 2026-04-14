@@ -23,16 +23,14 @@
 #'   \item{\code{results}}{A \code{data.table} with one row per
 #'     \code{(k, rep, frac_screened)} combination, containing columns
 #'     \code{mode} (\code{"background"}), \code{k}, \code{rep},
-#'     \code{score} (\code{"contrast"}), \code{bg_size_used},
+#'     \code{bg_size_used},
 #'     \code{frac_screened}, \code{n_screened}, \code{recall},
 #'     \code{lift_curve}, and \code{score_threshold}.}
-#'   \item{\code{summary}}{A \code{data.table} summarising mean and SD of
+#'   \item{\code{summary}}{A \code{data.table} summarizing mean and SD of
 #'     \code{lift_curve} and \code{recall} across replicates, grouped by
 #'     \code{k}, \code{score}, and \code{frac_screened}.}
 #' }
 #' @export
-#'
-#' @examples
 background_sensitivity <- function(boosted,
                                    extreme_k      = 1.51,
                                    lower_tail     = FALSE,
@@ -58,13 +56,12 @@ background_sensitivity <- function(boosted,
 
   # Pull data from boosted
   yvar_train     <- boosted$yvar_train
-  yvar_test      <- boosted$yvar_test
   n_yvar_test    <- boosted$n_yvar_test
   extr_idx_test  <- boosted$extr_idx_test
+  bg_idx_test    <- boosted$bg_idx_test
   Tm             <- boosted$Tm
   train_leaf_map <- boosted$train_leaf_map
   test_leaf_map  <- boosted$test_leaf_map
-  tree_idx       <- seq_len(Tm)
 
   # Parse input arguments
   center <- match.arg(center)
@@ -114,27 +111,27 @@ background_sensitivity <- function(boosted,
       scale      = scale
     )
 
-    # Fetch train and test set indices
+    # Fetch train set indices. Test labels are fixed to boosted$extr_idx_test
+    # throughout — the gain curve denominator does not shift with k.
     train_sets <- cls$apply(yvar_train)
-    test_sets  <- cls$apply(yvar_test)
 
     # Store set indices and background set size
     per_k_sets[[i]] <- list(
+      # training extreme set (constant)
       E_tr = train_sets$extr_idx,
-      B_tr = train_sets$bg_idx,
-      E_te = test_sets$extr_idx
+      # training background for this k
+      B_tr = train_sets$bg_idx
     )
     bg_sizes[i] <- length(train_sets$bg_idx)
 
     if (isTRUE(verbose)) {
       message(
         sprintf(
-          "[%s] background k=%.3f → |extreme_train|=%d, |background_train|=%d, |extreme_test|=%d",
+          "[%s] background k=%.3f → |extreme_train|=%d, |background_train|=%d",
           FUN,
           k,
           length(train_sets$extr_idx),
-          length(train_sets$bg_idx),
-          length(test_sets$extr_idx)
+          length(train_sets$bg_idx)
         )
       )
     }
@@ -167,17 +164,27 @@ background_sensitivity <- function(boosted,
     E_tr     <- per_k_sets[[i]]$E_tr
     # train background set for this k
     B_tr_all <- per_k_sets[[i]]$B_tr
-    # test extreme set (constant)
-    E_te     <- per_k_sets[[i]]$E_te
 
     # Determine if this k is the smallest background set
     is_smallest_k <- (resample_on && length(B_tr_all) == fixed_bg_n)
-
     # Number of iterations to run for this k:
     R_eff <- if (is_smallest_k)
       1L
     else
       R
+
+    # Pre-compute extreme leaf counts for this k. E_tr is constant across all R
+    # iterations, so one compiled count pass here replaces repeated per-tree
+    # tabulation in the hot loop.
+    ce_leaf_k <- .leaf_llrs_fast(
+      extr_idx       = E_tr,
+      train_leaf_map = train_leaf_map,
+      N_extr         = length(E_tr),
+      N_bg           = length(B_tr_all),
+      tree_idx       = seq_len(Tm),
+      alpha          = alpha,
+      return_counts  = TRUE
+    )
 
     # Per-k iterations
     for (r in seq_len(R_eff)) {
@@ -200,15 +207,16 @@ background_sensitivity <- function(boosted,
         B_tr <- B_tr_all
       }
 
-      # Compute leaf LLRs from training SNPs
-      enr <- .leaf_llrs(
-        extr_idx       = E_tr,
+      # Compute leaf LLRs from training SNPs. E_tr is fixed so its leaf counts
+      # come from the per-k pre-computation; the sparse matvec covers B_tr.
+      enr <- .leaf_llrs_fast(
         bg_idx         = B_tr,
         train_leaf_map = train_leaf_map,
         N_extr         = length(E_tr),
         N_bg           = length(B_tr),
-        tree_idx       = tree_idx,
-        alpha          = alpha
+        tree_idx       = seq_len(Tm),
+        alpha          = alpha,
+        fixed_ce_all   = ce_leaf_k
       )
 
       # Score test SNPs
@@ -231,6 +239,7 @@ background_sensitivity <- function(boosted,
         scores   = s,
         n        = n_yvar_test,
         extr_idx = extr_idx_test,
+        bg_idx   = bg_idx_test,
         grid     = grid_eval
       )
 
@@ -238,7 +247,6 @@ background_sensitivity <- function(boosted,
         mode         = "background",
         k            = k,
         rep          = r,
-        score        = "contrast",
         bg_size_used = as.integer(length(B_tr))
       )]
 
@@ -248,11 +256,13 @@ background_sensitivity <- function(boosted,
           "mode",
           "k",
           "rep",
-          "score",
           "bg_size_used",
           "frac_screened",
           "n_screened",
+          "tp",
+          "fp_bg",
           "recall",
+          "precision_vs_bg",
           "lift_curve",
           "score_threshold"
         )
@@ -274,11 +284,13 @@ background_sensitivity <- function(boosted,
 
   # Summarize across iterations per k
   summary <- results[, .(
-    lift_curve_mean = mean(lift_curve),
-    lift_curve_sd   = sd(lift_curve),
-    recall_mean     = mean(recall),
-    recall_sd       = sd(recall)
-  ), by = .(k, score, frac_screened)]
+    lift_curve_mean      = mean(lift_curve),
+    lift_curve_sd        = sd(lift_curve),
+    recall_mean          = mean(recall),
+    recall_sd            = sd(recall),
+    precision_vs_bg_mean = mean(precision_vs_bg),
+    precision_vs_bg_sd   = sd(precision_vs_bg)
+  ), by = .(k, frac_screened)]
 
   list(results = results[],
        summary = summary[])
