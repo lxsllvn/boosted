@@ -40,50 +40,6 @@
 #'     position in \code{leaf_llrs_by_tree[[j]]}.}
 #' }
 #' @keywords internal
-
-.leaf_llrs_from_counts <- function(ce,
-                                   cb,
-                                   N_extr,
-                                   N_bg,
-                                   alpha = 0.5) {
-  L <- length(ce)
-  llrs <- rep(NA_real_, L)
-  has_any <- (ce + cb) > 0L
-
-  if (!any(has_any)) {
-    return(llrs)
-  }
-
-  if (alpha == 0) {
-    eps <- 1e-12
-    pE <- pmax(ce / N_extr, eps)
-    pB <- pmax(cb / N_bg, eps)
-  } else {
-    denom_E <- N_extr + alpha * L
-    denom_B <- N_bg   + alpha * L
-    pE <- (ce + alpha) / denom_E
-    pB <- (cb + alpha) / denom_B
-  }
-
-  llrs[has_any] <- log(pE[has_any] / pB[has_any])
-  llrs
-}
-
-#' Title
-#'
-#' @param extr_idx
-#' @param bg_idx
-#' @param train_leaf_map
-#' @param N_extr
-#' @param N_bg
-#' @param tree_idx
-#' @param alpha
-#' @param return_ids
-#'
-#' @return
-#' @export
-#'
-#' @examples
 .leaf_llrs <- function(extr_idx,
                        bg_idx,
                        train_leaf_map,
@@ -92,42 +48,96 @@
                        tree_idx,
                        alpha = 0.5,
                        return_ids = FALSE) {
-  J <- length(tree_idx)
-  invs <- train_leaf_map$dense_leaf_ids
-  Lvec <- train_leaf_map$n_leaves
 
+  J <- length(tree_idx)
+  # dense leaf IDs for each tree and SNP
+  invs <- train_leaf_map$dense_leaf_ids # invs[[1:Tm]][1:length(n_train)]
+  # number of dense leaves per tree
+  Lvec <- train_leaf_map$n_leaves       # vector length(1:Tm)
+
+  # Initialize container for results
   leaf_llrs_by_tree <- vector("list", J)
-  native_leaf_ids <- if (isTRUE(return_ids))
-    vector("list", J)
+
+  # Optionally return native leaf IDs
+  native_leaf_ids <-
+    if (isTRUE(return_ids))
+      vector("list", J)
   else
     NULL
 
-  for (j in seq_len(J)) {
-    t <- tree_idx[j]
-    L <- Lvec[t]
-    inv <- invs[[t]]
+  # Near-empirical LLRs (alpha == 0) with tiny epsilon to avoid log(0)
+  if (alpha == 0) {
+    eps <- 1e-12
+    # For each tree j in 1..J,
+    for (j in seq_len(J)) {
+      t   <- tree_idx[j] # 1-based tree index
+      L   <- Lvec[t]     # number of leaves in tree t
+      inv <- invs[[t]]   # length = n_train
 
-    ce <- tabulate(inv[extr_idx], nbins = L)
-    cb <- tabulate(inv[bg_idx],   nbins = L)
+      # Count number of extremes/background SNPs per dense leaf ID
+      ce <- tabulate(inv[extr_idx], nbins = L)
+      cb <- tabulate(inv[bg_idx],   nbins = L)
 
-    leaf_llrs_by_tree[[j]] <- .leaf_llrs_from_counts(
-      ce     = ce,
-      cb     = cb,
-      N_extr = N_extr,
-      N_bg   = N_bg,
-      alpha  = alpha
-    )
+      llrs <- rep(NA_real_, L)
 
-    if (isTRUE(return_ids)) {
-      native_leaf_ids[[j]] <- train_leaf_map$native_leaf_ids[[t]]
+      # Only compute LLRs for leaves that have at least one labeled SNP
+      has_any <- (ce + cb) > 0L
+      if (any(has_any)) {
+        # Empirical probabilities under each leaf for extreme/background SNPs
+        pE_raw <- ce / N_extr
+        pB_raw <- cb / N_bg
+
+        # Epsilon floor to avoid zeros
+        pE <- pmax(pE_raw, eps)
+        pB <- pmax(pB_raw, eps)
+
+        llrs[has_any] <- log(pE[has_any] / pB[has_any])
+      }
+
+      leaf_llrs_by_tree[[j]] <- llrs
+
+      if (isTRUE(return_ids))
+        native_leaf_ids[[j]] <- train_leaf_map$native_leaf_ids[[t]]
+    }
+  } else {
+    # LLRs with Jeffreys prior
+    for (j in seq_len(J)) {
+      t   <- tree_idx[j] # 1-based tree index
+      L   <- Lvec[t]     # number of leaves in tree t
+      inv <- invs[[t]]   # length = n_train
+
+      ce <- tabulate(inv[extr_idx], nbins = L)
+      cb <- tabulate(inv[bg_idx],   nbins = L)
+
+      llrs <- rep(NA_real_, L)
+
+      # Compute only for leaves with >= 1 labeled SNP
+      has_any <- (ce + cb) > 0L
+      if (any(has_any)) {
+        # Jeffreys-prior smoothing (applied per leaf)
+        # pE = (ce + alpha) / (N_extr + alpha * L)
+        # pB = (cb + alpha) / (N_bg + alpha * L)
+        # alpha * L distributes smoothing across leaves
+        denom_E <- N_extr + alpha * L
+        denom_B <- N_bg   + alpha * L
+
+        pE <- (ce + alpha) / denom_E
+        pB <- (cb + alpha) / denom_B
+
+        llrs[has_any] <- log(pE[has_any] / pB[has_any])
+      }
+
+      leaf_llrs_by_tree[[j]] <- llrs
+
+      if (isTRUE(return_ids))
+        native_leaf_ids[[j]] <- train_leaf_map$native_leaf_ids[[t]]
     }
   }
 
+  # Return results
   if (isTRUE(return_ids)) {
-    list(
-      leaf_llrs_by_tree = leaf_llrs_by_tree,
-      native_leaf_ids   = native_leaf_ids
-    )
+    list(leaf_llrs_by_tree = leaf_llrs_by_tree,
+         native_leaf_ids   = native_leaf_ids)
   } else {
     list(leaf_llrs_by_tree = leaf_llrs_by_tree)
   }
