@@ -2,15 +2,14 @@
 % Please edit documentation in R/build_rule_caches.R
 \name{.build_rule_cache}
 \alias{.build_rule_cache}
-\title{Build a rule cache from a parsed and binned \code{xgboost} tree table}
+\title{Build a rule cache from a parsed \code{xgboost} tree table}
 \usage{
 .build_rule_cache(tdt, max_depth, tighten_monotone = TRUE)
 }
 \arguments{
-\item{tdt}{A \code{data.table} produced by \code{\link{.parse_xgb_tree}}
-and subsequently annotated by \code{\link{prepare_harvest}} with a
-\code{Split_bin} column. Required columns: \code{Tree}, \code{ID},
-\code{Feature}, \code{Split_bin}, \code{Yes}, \code{No}, and \code{Leaf}.}
+\item{tdt}{A \code{data.table} produced by \code{\link{.parse_xgb_tree}}.
+Required columns: \code{Tree}, \code{ID}, \code{Feature}, \code{Split},
+\code{Yes}, \code{No}, and \code{Leaf}.}
 
 \item{max_depth}{Positive integer. Maximum number of split-steps to include
 in any rule prefix. Rules for leaves deeper than \code{max_depth} are
@@ -19,7 +18,7 @@ faithfully for all leaves regardless of the cap.}
 
 \item{tighten_monotone}{Logical. If \code{TRUE} (default), redundant
 monotone constraints on the same feature and direction within a prefix are
-collapsed to the tightest bound. For example, \code{x < 5 | x < 3}
+collapsed to the tightest bound. For example, \code{x < 5 & x < 3}
 becomes \code{x < 3}.}
 }
 \value{
@@ -41,9 +40,10 @@ rule prefix (\eqn{1 \le \text{rule\_len} \le \min(\text{max\_depth},
 \code{rule_str} after monotone tightening (may be less than
 \code{rule_len} when tightening collapses redundant conditions).}
 \item{\code{rule_str}}{Character. The rule string: an ordered,
-pipe-delimited sequence of split conditions of the form
+ampersand-delimited sequence of split conditions of the form
 \code{"feature >= threshold"} or \code{"feature < threshold"}, where
-thresholds are binned midpoints formatted in scientific notation.}
+thresholds are raw \code{xgboost} split values formatted to 4 significant
+figures in scientific notation.}
 }
 }
 \description{
@@ -52,11 +52,10 @@ split conditions encountered on the path from root to each leaf. For every
 leaf, all prefix rules of length \eqn{1, \ldots, \min(\text{max\_depth},
 \text{leaf\_depth})}{} are materialized as character strings and stored
 alongside the leaf's \code{(Tree, leaf_id)} identity. Split thresholds are
-taken from the \code{Split_bin} column (the binned values added by
-\code{\link{prepare_harvest}}) rather than the raw \code{Split} values,
-so that rules are expressed in terms of stable, interpretable bin
-midpoints. When \code{tighten_monotone = TRUE}, multiple constraints on the
-same feature and direction within a single prefix are collapsed to the
-tightest bound, removing logically redundant clauses.
+taken directly from the \code{Split} column,
+formatted to 4 significant figures in scientific notation. When
+\code{tighten_monotone = TRUE}, multiple constraints on the same feature
+and direction within a single prefix are collapsed to the tightest bound,
+removing logically redundant clauses.
 }
 \keyword{internal}

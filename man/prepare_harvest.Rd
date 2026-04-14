@@ -6,11 +6,6 @@
 \usage{
 prepare_harvest(
   boosted,
-  target_bins = 10L,
-  min_per_bin = 50L,
-  winsor_prob = 0.01,
-  method = c("fd", "quantile"),
-  bin_weight = c("node", "leaf", "cover"),
   verbose = FALSE,
   max_depth = NULL,
   tighten_monotone = TRUE
@@ -19,28 +14,6 @@ prepare_harvest(
 \arguments{
 \item{boosted}{A \code{boosted} object returned by
 \code{\link{make_boosted}}.}
-
-\item{target_bins}{Positive integer. Target maximum number of bins per
-feature when constructing the binning specification.}
-
-\item{min_per_bin}{Numeric scalar. Minimum bin mass (total split weight)
-required for a bin to be retained; bins below this threshold are merged
-with their neighbour.}
-
-\item{winsor_prob}{Numeric scalar in \code{[0, 0.5)}. Tail probability used
-for winsorising split values before proposing bin boundaries, making the
-bins robust to extreme outlier splits.}
-
-\item{method}{Character string, one of \code{"fd"} or \code{"quantile"}.
-Algorithm used to propose the initial bin boundaries: \code{"fd"} uses a
-weighted Freedman-Diaconis rule; \code{"quantile"} places boundaries at
-equally spaced weighted quantiles.}
-
-\item{bin_weight}{Character string, one of \code{"node"}, \code{"leaf"}, or
-\code{"cover"}. How split thresholds are weighted when constructing bins:
-\code{"node"} weights each split equally; \code{"leaf"} weights by the
-number of descendant leaves; \code{"cover"} weights by the xgboost node
-Cover statistic (falls back to equal weighting if Cover is absent).}
 
 \item{verbose}{Logical. If \code{TRUE}, timestamped progress messages are
 printed at major internal checkpoints.}
@@ -58,13 +31,7 @@ making them easier to interpret.}
 The input \code{boosted} object with the following additional slots
 attached, and class \code{"boosted_harvest"} prepended:
 \describe{
-\item{\code{harvest_bins}}{A named list with elements \code{breaks}
-(environment keyed by feature name, each holding a numeric breakpoint
-vector), \code{mids} (environment of bin midpoints), and \code{params}
-(the binning parameters used).}
-\item{\code{tdt}}{The original \code{tdt} \code{data.table}, now with an
-additional \code{Split_bin} column giving the binned split value for
-each internal node.}
+\item{\code{tdt}}{The original \code{tdt} \code{data.table}, unchanged.}
 \item{\code{snps_all_by_leaf_train}, \code{snps_all_by_leaf_test}}{
 List-of-lists (tree → native leaf ID → integer SNP indices) mapping
 each leaf to all SNPs (labelled and unlabelled) that fell into it in
@@ -83,12 +50,10 @@ Extends a \code{boosted} object with all the cached data structures needed
 by \code{\link{validate_rules}}, \code{\link{analyze_rule_depth}}, and
 \code{\link{analyze_rule_overlap}}. Specifically, this function: (1) builds
 inverse leaf-to-SNP lookup tables for both the training and test partitions;
-(2) constructs a feature binning specification from the split thresholds in
-\code{boosted$tdt}, discretising continuous split values into stable
-interpretable bins; (3) annotates \code{boosted$tdt} with the binned split
-value (\code{Split_bin}); and (4) builds a rule cache mapping every
-\code{(Tree, leaf_id)} to all of its prefixes up to \code{max_depth} splits,
-with optional tightening of redundant monotone constraints. On completion,
-the returned object gains class \code{"boosted_harvest"} and can be passed
-directly to all rule-level functions.
+(2) builds a rule cache mapping every \code{(Tree, leaf_id)} to all of its
+prefixes up to \code{max_depth} splits, with optional tightening of
+redundant monotone constraints. Rule strings use raw xgboost split
+thresholds formatted to 4 significant figures in scientific notation. On
+completion, the returned object gains class \code{"boosted_harvest"} and can
+be passed directly to all rule-level functions.
 }
