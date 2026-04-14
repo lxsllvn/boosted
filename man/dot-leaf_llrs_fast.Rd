@@ -2,43 +2,66 @@
 % Please edit documentation in R/leaf_llrs.R
 \name{.leaf_llrs_fast}
 \alias{.leaf_llrs_fast}
-\title{Sparse-matrix accelerated leaf LLR computation for permutation loops}
+\title{Selected-index count + LLR backend for resampling paths}
 \usage{
-.leaf_llrs_fast(perm_extr, leaf_mat, N_extr, N_bg, Tm, alpha = 0.5)
+.leaf_llrs_fast(
+  extr_idx = NULL,
+  bg_idx = NULL,
+  train_leaf_map,
+  N_extr,
+  N_bg,
+  tree_idx = seq_along(train_leaf_map$dense_leaf_ids),
+  alpha = 0.5,
+  fixed_cb_all = NULL,
+  fixed_ce_all = NULL,
+  pool_counts_all = NULL,
+  return_counts = FALSE
+)
 }
 \arguments{
-\item{perm_extr}{Integer vector of 1-based SNP indices for the permuted
-extreme set (drawn from the full labelled index pool).}
+\item{extr_idx}{Optional integer vector of 1-based training SNP indices for
+the extreme set.}
 
-\item{leaf_mat}{Named list returned by \code{.build_leaf_matrix}, containing
-the sparse incidence matrix \code{A}, per-tree \code{offsets},
-\code{Lvec} (leaves per tree), and \code{labeled_row_sums} (labelled SNP
-count per leaf row).}
+\item{bg_idx}{Optional integer vector of 1-based training SNP indices for
+the background set.}
 
-\item{N_extr}{Integer scalar: size of the permuted extreme set.}
+\item{train_leaf_map}{Named list returned by \code{.build_train_leaf_map}.}
 
-\item{N_bg}{Integer scalar: size of the permuted background set
-(\code{N_index_train - N_extr}).}
+\item{N_extr}{Integer scalar: size of the extreme set.}
 
-\item{Tm}{Integer scalar: total number of trees.}
+\item{N_bg}{Integer scalar: size of the background set.}
 
-\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration; see
-\code{\link{.boosted_params}}.}
+\item{tree_idx}{Integer vector of 1-based tree indices to evaluate.}
+
+\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration.}
+
+\item{fixed_cb_all}{Optional numeric vector of stacked background counts in
+\code{tree_idx} order.}
+
+\item{fixed_ce_all}{Optional numeric vector of stacked extreme counts in
+\code{tree_idx} order.}
+
+\item{pool_counts_all}{Optional numeric vector of stacked counts for a fixed
+relabelling pool in \code{tree_idx} order.}
+
+\item{return_counts}{Logical. If \code{TRUE}, returns the stacked count
+vector for exactly one supplied index set instead of LLRs.}
 }
 \value{
-A named list with a single element \code{leaf_llrs_by_tree}: a list
-of length \code{Tm} where element \code{t} is a numeric vector of LLRs
-for the dense leaves of tree \code{t}. The format is identical to the
-\code{leaf_llrs_by_tree} element returned by \code{.leaf_llrs}.
+Either a numeric vector of stacked counts (\code{return_counts =
+  TRUE}) or a named list with element \code{leaf_llrs_by_tree}.
 }
 \description{
-A drop-in replacement for \code{.leaf_llrs} designed for use inside
-permutation hot loops. Instead of calling \code{tabulate()} once per tree,
-a single sparse matrix-vector product (\code{A \%*\% y}) replaces all
-\eqn{T_m}{} tabulation calls simultaneously, where \code{A} is a
-pre-built leaf-by-SNP incidence matrix. This is substantially faster when
-\code{.leaf_llrs} is called thousands of times with different permuted index
-vectors but the same leaf structure. The pre-computation cost is paid once
-by \code{.build_leaf_matrix}.
+A thin wrapper around the compiled resampling backend. The caller supplies
+the training leaf assignments once via \code{train_leaf_map}, then chooses
+one of four count modes:
+\itemize{
+\item explicit \code{extr_idx + bg_idx}
+\item explicit \code{bg_idx} plus fixed extreme counts
+\item explicit \code{extr_idx} plus fixed background counts
+\item a fixed labelled pool plus exactly one varying side
+}
+The mathematical definitions match \code{.leaf_llrs()} exactly; only the
+counting strategy changes.
 }
 \keyword{internal}
