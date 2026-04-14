@@ -4,21 +4,16 @@
 \alias{.build_leaf_matrix}
 \title{Precompute a sparse SNP-by-leaf membership matrix for permutation hot loops}
 \usage{
-.build_leaf_matrix(train_leaf_map, N_index_train)
+.build_leaf_matrix(train_leaf_map)
 }
 \arguments{
 \item{train_leaf_map}{Named list returned by
 \code{\link{.build_train_leaf_map}}, containing \code{dense_leaf_ids}
 (per-tree compact leaf assignments for all training SNPs) and
 \code{n_leaves} (leaf count per tree).}
-
-\item{N_index_train}{Positive integer scalar: total number of labelled
-training SNPs (\code{N_extr_train + N_bg_train}), as stored in
-\code{boosted$N_index_train}. Used to restrict \code{labeled_row_sums}
-to the labelled index pool rather than all training SNPs.}
 }
 \value{
-A named list with four elements:
+A named list with three elements:
 \describe{
 \item{A}{Sparse binary matrix of dimensions
 \code{sum(Lvec) x n_train} (package \pkg{Matrix} class
@@ -33,21 +28,14 @@ tree order.}
 \item{Lvec}{Integer vector of length \code{Tm} giving the number of
 dense leaves in each tree. Copied from
 \code{train_leaf_map$n_leaves}.}
-\item{labeled_row_sums}{Integer vector of length \code{sum(Lvec)}.
-The number of labeled training SNPs (i.e. those within the index
-pool of size \code{N_index_train}) falling in each leaf. Used in
-the permutation loop to recover background leaf counts as
-\code{labeled_row_sums - ce}, without materialising the background
-index vector explicitly.}
 }
 }
 \description{
 Builds a sparse binary matrix \code{A} of dimensions
 \code{sum(Lvec) x n_train} from the training leaf map, where leaves from
 all trees are stacked vertically in tree order. Inside the permutation loop
-in \code{\link{.leaf_llrs_fast}}, a single \code{A \%*\% y} replaces
-\code{Tm} calls to \code{tabulate()}, giving a substantial speedup when
-the loop runs thousands of iterations. The pre-computation cost is paid
-once before the loop begins.
+in \code{\link{.leaf_llrs_fast}}, one or more sparse matrix-vector products
+replace repeated per-tree \code{tabulate()} calls. The pre-computation cost
+is paid once before the loop begins.
 }
 \keyword{internal}
