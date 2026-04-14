@@ -2,9 +2,9 @@
 % Please edit documentation in R/gain_curve.R
 \name{.gain_curve}
 \alias{.gain_curve}
-\title{Compute a gain curve for a scored set of SNPs}
+\title{Compute recall and labeled precision along a gain curve for scored SNPs}
 \usage{
-.gain_curve(scores, n, extr_idx, grid)
+.gain_curve(scores, n, extr_idx, bg_idx, grid)
 }
 \arguments{
 \item{scores}{Numeric vector of length \code{n} containing per-SNP scores.
@@ -12,35 +12,45 @@
 
 \item{n}{Integer scalar: total number of SNPs (length of \code{scores}).}
 
-\item{extr_idx}{Integer vector of 1-based indices of the extreme (positive)
+\item{extr_idx}{Integer vector of 1-based indices of the labeled extreme SNPs
+within \code{scores}.}
+
+\item{bg_idx}{Integer vector of 1-based indices of the labeled background
 SNPs within \code{scores}.}
 
-\item{grid}{Numeric vector of screening fractions in \code{(0, 1]} at
-which to evaluate the gain curve; typically the validated
-\code{gain_grid} from the calling function.}
+\item{grid}{Numeric vector of screening fractions in \code{(0, 1]} at which
+to evaluate the gain curve; typically the validated \code{gain_grid} from
+the calling function.}
 }
 \value{
-A \code{data.table} with one row per element of \code{grid} and
-the following columns:
-\describe{
-\item{\code{frac_screened}}{Numeric. The screening fraction from
-\code{grid}.}
-\item{\code{n_screened}}{Integer. Number of SNPs in the top-scoring
-fraction (\code{ceiling(frac_screened * n)}, clipped to
-\code{[1, n]}).}
-\item{\code{score_threshold}}{Numeric. The score of the last SNP
-included at this cutoff.}
-\item{\code{recall}}{Numeric. Fraction of extreme SNPs recovered among
-the top \code{n_screened} SNPs.}
-\item{\code{lift_curve}}{Numeric. \code{recall / frac_screened}; equals
-1 for a random ranker.}
-}
+A \code{data.table} with one row per element of \code{grid} and the
+following columns: \describe{ \item{\code{frac_screened}}{Numeric. The
+screening fraction from \code{grid}.} \item{\code{n_screened}}{Integer.
+Number of SNPs in the top-scoring fraction (\code{ceiling(frac_screened *
+  n)}, clipped to \code{[1, n]}).} \item{\code{score_threshold}}{Numeric. The
+score of the last SNP included at this cutoff.} \item{\code{tp}}{Integer.
+Number of labeled extreme SNPs recovered among the top \code{n_screened}
+SNPs.} \item{\code{fp_bg}}{Integer. Number of labeled background SNPs
+recovered among the top \code{n_screened} SNPs.}
+\item{\code{recall}}{Numeric. Fraction of labeled extreme SNPs recovered
+among the top \code{n_screened} SNPs.}
+\item{\code{precision_vs_bg}}{Numeric. Among recovered SNPs that belong to
+either the labeled extreme or labeled background set, the fraction
+belonging to the extreme set: \code{tp / (tp + fp_bg)}. Returns \code{NA}
+when no labeled SNPs have been recovered at that cutoff.}
+\item{\code{lift_curve}}{Numeric. \code{recall / frac_screened}; equals 1
+for a random ranker with respect to recovery of the extreme set.} }
 }
 \description{
-Sorts SNPs by score descending (with \code{NA}s ranked last), then
-evaluates the gain curve at each fraction in \code{grid}: for the top
-\code{ceiling(f * n)} SNPs by score, how many extreme SNPs are recovered
-(recall) relative to random screening at the same fraction? The ratio of
-recall to screening fraction is the lift at that point.
+Sorts SNPs by score in descending order (with \code{NA}s ranked last), then
+evaluates performance at each screening fraction in \code{grid}. For the top
+\code{ceiling(f * n)} SNPs by score, the function computes: \itemize{ \item
+\code{recall}: the fraction of labeled extreme SNPs recovered; and \item
+\code{precision_vs_bg}: the fraction of labeled SNPs recovered that belong to
+the extreme set rather than the labeled background set. } Unlabeled SNPs are
+included in the ranking and may occupy screened positions, but they are
+excluded from labeled-set counts. Thus, recall is computed only with respect
+to the labeled extreme set, and precision_vs_bg is computed only among
+labeled extreme and labeled background SNPs recovered at each cutoff.
 }
 \keyword{internal}
