@@ -5,6 +5,10 @@
     .Call(`_boosted_build_lookup_rcpp`, dense_leaf_ids, native_leaf_ids, extr_idx_sexp, bg_idx_sexp, all)
 }
 
+.leaf_llrs_backend_rcpp <- function(dense_leaf_ids, n_leaves, N_extr, N_bg, alpha, extr_idx_sexp = NULL, bg_idx_sexp = NULL, fixed_ce_all_sexp = NULL, fixed_cb_all_sexp = NULL, pool_counts_all_sexp = NULL, tree_idx_sexp = NULL, return_counts = FALSE) {
+    .Call(`_boosted_leaf_llrs_backend_rcpp`, dense_leaf_ids, n_leaves, N_extr, N_bg, alpha, extr_idx_sexp, bg_idx_sexp, fixed_ce_all_sexp, fixed_cb_all_sexp, pool_counts_all_sexp, tree_idx_sexp, return_counts)
+}
+
 .score_snps_rcpp <- function(test_leaf_map, leaf_llrs_by_tree, Tm, n) {
     .Call(`_boosted_score_snps_rcpp`, test_leaf_map, leaf_llrs_by_tree, Tm, n)
 }
