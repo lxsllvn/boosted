@@ -88,7 +88,7 @@ set_snp_class <- function(yvar_train,
       extr_idx <- which(y >= extr_thr)
     }
 
-    bg_idx <- which(y >= bg_low & y <= bg_high)
+    bg_idx <- which(y > bg_low & y < bg_high)
 
     list(extr_idx = extr_idx,
          bg_idx   = bg_idx)
