@@ -41,6 +41,49 @@
 #' }
 #' @keywords internal
 
+.leaf_llrs_from_counts <- function(ce,
+                                   cb,
+                                   N_extr,
+                                   N_bg,
+                                   alpha = 0.5) {
+  L <- length(ce)
+  llrs <- rep(NA_real_, L)
+  has_any <- (ce + cb) > 0L
+
+  if (!any(has_any)) {
+    return(llrs)
+  }
+
+  if (alpha == 0) {
+    eps <- 1e-12
+    pE <- pmax(ce / N_extr, eps)
+    pB <- pmax(cb / N_bg, eps)
+  } else {
+    denom_E <- N_extr + alpha * L
+    denom_B <- N_bg   + alpha * L
+    pE <- (ce + alpha) / denom_E
+    pB <- (cb + alpha) / denom_B
+  }
+
+  llrs[has_any] <- log(pE[has_any] / pB[has_any])
+  llrs
+}
+
+#' Title
+#'
+#' @param extr_idx
+#' @param bg_idx
+#' @param train_leaf_map
+#' @param N_extr
+#' @param N_bg
+#' @param tree_idx
+#' @param alpha
+#' @param return_ids
+#'
+#' @return
+#' @export
+#'
+#' @examples
 .leaf_llrs <- function(extr_idx,
                        bg_idx,
                        train_leaf_map,
@@ -49,171 +92,119 @@
                        tree_idx,
                        alpha = 0.5,
                        return_ids = FALSE) {
-
   J <- length(tree_idx)
-  # dense leaf IDs for each tree and SNP
-  invs <- train_leaf_map$dense_leaf_ids # invs[[1:Tm]][1:length(n_train)]
-  # number of dense leaves per tree
-  Lvec <- train_leaf_map$n_leaves       # vector length(1:Tm)
+  invs <- train_leaf_map$dense_leaf_ids
+  Lvec <- train_leaf_map$n_leaves
 
-  # Initialize container for results
   leaf_llrs_by_tree <- vector("list", J)
-
-  # Optionally return native leaf IDs
-  native_leaf_ids <-
-    if (isTRUE(return_ids))
-      vector("list", J)
+  native_leaf_ids <- if (isTRUE(return_ids))
+    vector("list", J)
   else
     NULL
 
-  # Near-empirical LLRs (alpha == 0) with tiny epsilon to avoid log(0)
-  if (alpha == 0) {
-    eps <- 1e-12
-    # For each tree j in 1..J,
-    for (j in seq_len(J)) {
-      t   <- tree_idx[j] # 1-based tree index
-      L   <- Lvec[t]     # number of leaves in tree t
-      inv <- invs[[t]]   # length = n_train
+  for (j in seq_len(J)) {
+    t <- tree_idx[j]
+    L <- Lvec[t]
+    inv <- invs[[t]]
 
-      # Count number of extremes/background SNPs per dense leaf ID
-      ce <- tabulate(inv[extr_idx], nbins = L)
-      cb <- tabulate(inv[bg_idx],   nbins = L)
+    ce <- tabulate(inv[extr_idx], nbins = L)
+    cb <- tabulate(inv[bg_idx],   nbins = L)
 
-      llrs <- rep(NA_real_, L)
+    leaf_llrs_by_tree[[j]] <- .leaf_llrs_from_counts(
+      ce     = ce,
+      cb     = cb,
+      N_extr = N_extr,
+      N_bg   = N_bg,
+      alpha  = alpha
+    )
 
-      # Only compute LLRs for leaves that have at least one labeled SNP
-      has_any <- (ce + cb) > 0L
-      if (any(has_any)) {
-        # Empirical probabilities under each leaf for extreme/background SNPs
-        pE_raw <- ce / N_extr
-        pB_raw <- cb / N_bg
-
-        # Epsilon floor to avoid zeros
-        pE <- pmax(pE_raw, eps)
-        pB <- pmax(pB_raw, eps)
-
-        llrs[has_any] <- log(pE[has_any] / pB[has_any])
-      }
-
-      leaf_llrs_by_tree[[j]] <- llrs
-
-      if (isTRUE(return_ids))
-        native_leaf_ids[[j]] <- train_leaf_map$native_leaf_ids[[t]]
-    }
-  } else {
-    # LLRs with Jeffreys prior
-    for (j in seq_len(J)) {
-      t   <- tree_idx[j] # 1-based tree index
-      L   <- Lvec[t]     # number of leaves in tree t
-      inv <- invs[[t]]   # length = n_train
-
-      ce <- tabulate(inv[extr_idx], nbins = L)
-      cb <- tabulate(inv[bg_idx],   nbins = L)
-
-      llrs <- rep(NA_real_, L)
-
-      # Compute only for leaves with ≥ 1 labeled SNP
-      has_any <- (ce + cb) > 0L
-      if (any(has_any)) {
-        # Jeffreys-prior smoothing (applied per leaf)
-        # pE = (ce + α) / (N_extr + α * L)
-        # pB = (cb + α) / (N_bg + α * L)
-        # α * L distributes smoothing across leaves
-        denom_E <- N_extr + alpha * L
-        denom_B <- N_bg   + alpha * L
-
-        pE <- (ce + alpha) / denom_E
-        pB <- (cb + alpha) / denom_B
-
-        llrs[has_any] <- log(pE[has_any] / pB[has_any])
-      }
-
-      leaf_llrs_by_tree[[j]] <- llrs
-
-      if (isTRUE(return_ids))
-        native_leaf_ids[[j]] <- train_leaf_map$native_leaf_ids[[t]]
+    if (isTRUE(return_ids)) {
+      native_leaf_ids[[j]] <- train_leaf_map$native_leaf_ids[[t]]
     }
   }
 
-  # Return results
   if (isTRUE(return_ids)) {
-    list(leaf_llrs_by_tree = leaf_llrs_by_tree,
-         native_leaf_ids   = native_leaf_ids)
+    list(
+      leaf_llrs_by_tree = leaf_llrs_by_tree,
+      native_leaf_ids   = native_leaf_ids
+    )
   } else {
     list(leaf_llrs_by_tree = leaf_llrs_by_tree)
   }
 }
 
 
-#' Sparse-matrix accelerated leaf LLR computation for permutation loops
+#' Selected-index count + LLR backend for resampling paths
 #'
-#' A drop-in replacement for \code{.leaf_llrs} designed for use inside
-#' permutation hot loops. Instead of calling \code{tabulate()} once per tree,
-#' a single sparse matrix-vector product (\code{A \%*\% y}) replaces all
-#' \eqn{T_m}{} tabulation calls simultaneously, where \code{A} is a
-#' pre-built leaf-by-SNP incidence matrix. This is substantially faster when
-#' \code{.leaf_llrs} is called thousands of times with different permuted index
-#' vectors but the same leaf structure. The pre-computation cost is paid once
-#' by \code{.build_leaf_matrix}.
+#' A thin wrapper around the compiled resampling backend. The caller supplies
+#' the training leaf assignments once via \code{train_leaf_map}, then chooses
+#' one of four count modes:
+#' \itemize{
+#'   \item explicit \code{extr_idx + bg_idx}
+#'   \item explicit \code{bg_idx} plus fixed extreme counts
+#'   \item explicit \code{extr_idx} plus fixed background counts
+#'   \item a fixed labelled pool plus exactly one varying side
+#' }
+#' The mathematical definitions match \code{.leaf_llrs()} exactly; only the
+#' counting strategy changes.
 #'
-#' @param perm_extr Integer vector of 1-based SNP indices for the permuted
-#'   extreme set (drawn from the full labelled index pool).
-#' @param leaf_mat Named list returned by \code{.build_leaf_matrix}, containing
-#'   the sparse incidence matrix \code{A}, per-tree \code{offsets},
-#'   \code{Lvec} (leaves per tree), and \code{labeled_row_sums} (labelled SNP
-#'   count per leaf row).
-#' @param N_extr Integer scalar: size of the permuted extreme set.
-#' @param N_bg Integer scalar: size of the permuted background set
-#'   (\code{N_index_train - N_extr}).
-#' @param Tm Integer scalar: total number of trees.
-#' @param alpha Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration; see
-#'   \code{\link{.boosted_params}}.
+#' @param extr_idx Optional integer vector of 1-based training SNP indices for
+#'   the extreme set.
+#' @param bg_idx Optional integer vector of 1-based training SNP indices for
+#'   the background set.
+#' @param train_leaf_map Named list returned by \code{.build_train_leaf_map}.
+#' @param N_extr Integer scalar: size of the extreme set.
+#' @param N_bg Integer scalar: size of the background set.
+#' @param tree_idx Integer vector of 1-based tree indices to evaluate.
+#' @param alpha Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration.
+#' @param fixed_cb_all Optional numeric vector of stacked background counts in
+#'   \code{tree_idx} order.
+#' @param fixed_ce_all Optional numeric vector of stacked extreme counts in
+#'   \code{tree_idx} order.
+#' @param pool_counts_all Optional numeric vector of stacked counts for a fixed
+#'   relabelling pool in \code{tree_idx} order.
+#' @param return_counts Logical. If \code{TRUE}, returns the stacked count
+#'   vector for exactly one supplied index set instead of LLRs.
 #'
-#' @return A named list with a single element \code{leaf_llrs_by_tree}: a list
-#'   of length \code{Tm} where element \code{t} is a numeric vector of LLRs
-#'   for the dense leaves of tree \code{t}. The format is identical to the
-#'   \code{leaf_llrs_by_tree} element returned by \code{.leaf_llrs}.
+#' @return Either a numeric vector of stacked counts (\code{return_counts =
+#'   TRUE}) or a named list with element \code{leaf_llrs_by_tree}.
 #' @keywords internal
-
-.leaf_llrs_fast <- function(perm_extr,
-                            leaf_mat,
+.leaf_llrs_fast <- function(extr_idx = NULL,
+                            bg_idx = NULL,
+                            train_leaf_map,
                             N_extr,
                             N_bg,
-                            Tm,
-                            alpha = 0.5) {
-  A        <- leaf_mat$A
-  offsets  <- leaf_mat$offsets
-  Lvec     <- leaf_mat$Lvec
+                            tree_idx = seq_along(train_leaf_map$dense_leaf_ids),
+                            alpha = 0.5,
+                            fixed_cb_all = NULL,
+                            fixed_ce_all = NULL,
+                            pool_counts_all = NULL,
+                            return_counts = FALSE) {
 
-  # Binary label vector: 1 = extreme, 0 = background
-  y <- integer(ncol(A))
-  y[perm_extr] <- 1L
+  dense_leaf_ids <- train_leaf_map$dense_leaf_ids
+  n_leaves <- as.integer(train_leaf_map$n_leaves)
+  tree_idx <- as.integer(tree_idx)
 
-  # Sparse matvec replaces all Tm tabulate() calls
-  ce_all <- as.vector(A %*% y)
-  cb_all <- leaf_mat$labeled_row_sums - ce_all
+  has_extr <- !is.null(extr_idx)
+  has_bg <- !is.null(bg_idx)
+  has_fixed_ce <- !is.null(fixed_ce_all)
+  has_fixed_cb <- !is.null(fixed_cb_all)
+  has_pool <- !is.null(pool_counts_all)
 
-  # Unpack by tree and compute LLRs
-  leaf_llrs_by_tree <- vector("list", Tm)
+  expected_counts <- sum(n_leaves[tree_idx])
 
-  for (t in seq_len(Tm)) {
-    rows <- seq(offsets[t] + 1L, offsets[t + 1])
-    ce   <- ce_all[rows]
-    cb   <- cb_all[rows]
-    L    <- Lvec[t]
-
-    has_any <- (ce + cb) > 0L
-    llrs    <- rep(NA_real_, L)
-
-    if (any(has_any)) {
-      denom_E <- N_extr + alpha * L
-      denom_B <- N_bg   + alpha * L
-      pE <- (ce + alpha) / denom_E
-      pB <- (cb + alpha) / denom_B
-      llrs[has_any] <- log(pE[has_any] / pB[has_any])
-    }
-    leaf_llrs_by_tree[[t]] <- llrs
-  }
-
-  list(leaf_llrs_by_tree = leaf_llrs_by_tree)
+  .leaf_llrs_backend_rcpp(
+    dense_leaf_ids     = dense_leaf_ids,
+    n_leaves           = n_leaves,
+    N_extr             = as.integer(N_extr),
+    N_bg               = as.integer(N_bg),
+    alpha              = as.numeric(alpha),
+    extr_idx_sexp      = if (has_extr) as.integer(extr_idx) else NULL,
+    bg_idx_sexp        = if (has_bg) as.integer(bg_idx) else NULL,
+    fixed_ce_all_sexp  = if (has_fixed_ce) as.numeric(fixed_ce_all) else NULL,
+    fixed_cb_all_sexp  = if (has_fixed_cb) as.numeric(fixed_cb_all) else NULL,
+    pool_counts_all_sexp = if (has_pool) as.numeric(pool_counts_all) else NULL,
+    tree_idx_sexp      = tree_idx,
+    return_counts      = return_counts
+  )
 }
