@@ -7,36 +7,37 @@
 #' all SNPs, extreme SNPs, and background SNPs. A sparse incidence matrix
 #' approach replaces \eqn{O(K^2)}{} pairwise set-intersection loops, making
 #' the computation tractable for large rule sets. The output supports
-#' downstream selection of non-redundant rule subsets.
+#' downstream deduplication via \code{\link{build_rule_dag}} and rule
+#' selection via \code{\link{greedy_select_rules}} or
+#' \code{\link{milp_select_rules}}.
 #'
 #' @inheritParams .boosted_params
 #'
 #' @return A named list with the following elements:
 #' \describe{
 #'   \item{\code{overlap}}{A \code{data.table} with one row per ordered pair
-#'     \code{(i, j)} with \code{i < j} and \code{n_all_intersect > 0},
-#'     containing: \code{i_index}, \code{j_index} (1-based positions in
-#'     \code{rule_ids}); per-rule SNP counts
-#'     (\code{n_all_i}/\code{j}, \code{n_ext_i}/\code{j},
-#'     \code{n_bg_i}/\code{j}); intersection sizes
-#'     (\code{n_all_intersect}, \code{n_ext_intersect},
-#'     \code{n_bg_intersect}); unique-to-each-rule counts
-#'     (\code{n_all_unique_i}/\code{j}); directional overlaps
-#'     (\code{prop_all_i_in_j}, \code{prop_all_j_in_i}); and
-#'     Jaccard coefficients (\code{jacc_all}, \code{jacc_ext},
-#'     \code{jacc_bg}) and min-normalised overlaps
-#'     (\code{overlap_all}, \code{overlap_ext}, \code{overlap_bg}).
-#'     Entirely-\code{NA} columns are dropped.}
+#'     \code{(i, j)} with \code{i < j} and \code{n_all_intersect > 0}.
+#'     In addition to the columns produced previously, now includes
+#'     \code{prop_ext_i_in_j} (fraction of rule \code{i}'s extreme SNPs
+#'     covered by rule \code{j}) and \code{prop_ext_j_in_i} (fraction of
+#'     rule \code{j}'s extreme SNPs covered by rule \code{i}). Entirely-\code{NA}
+#'     columns are dropped.}
 #'   \item{\code{rule_ids}}{Character vector of length \code{K}: the sorted
-#'     rule strings corresponding to rows/columns of the Jaccard matrices.}
+#'     rule strings corresponding to rows/columns of the Jaccard matrices and
+#'     to rows of \code{rule_summary}.}
+#'   \item{\code{rule_summary}}{A \code{data.table} with one row per entry
+#'     in \code{rule_ids}, containing: \code{rule_str}, \code{n_clauses},
+#'     \code{n_ext}, \code{n_bg}, \code{n_all}, and \code{omega} (the
+#'     rule-level log-likelihood ratio with Jeffreys smoothing at
+#'     \code{alpha}).}
 #'   \item{\code{jaccard_ext}, \code{jaccard_bg}, \code{jaccard_all}}{
 #'     Numeric \eqn{K \times K}{} matrices of Jaccard coefficients computed
 #'     over extreme, background, and all SNPs respectively. Diagonal entries
 #'     are 1.}
 #'   \item{\code{sets}}{A list with elements \code{A_sets} and \code{B_sets}
-#'     (per-rule compact extreme and background SNP ID vectors for use in
-#'     downstream optimisation) and scalars \code{A_n} and \code{B_n} (total
-#'     extreme and background set sizes).}
+#'     (per-rule compact extreme and background SNP ID vectors, indexed
+#'     1-based into \code{rule_ids} order) and scalars \code{A_n} and
+#'     \code{B_n} (total extreme and background set sizes).}
 #'   \item{\code{meta}}{A list recording \code{which}, \code{fold_n_all},
 #'     \code{fold_n_extr}, and \code{fold_n_bg}.}
 #' }
@@ -45,6 +46,7 @@ analyze_rule_overlap <- function(boosted,
                                  candidate_rules = NULL,
                                  which = c("train", "test"),
                                  fold_indices = NULL,
+                                 alpha = 0.5,
                                  progress_every = NULL) {
   # Signature & basic checks
   FUN <- "analyze_rule_overlap"
@@ -65,9 +67,9 @@ analyze_rule_overlap <- function(boosted,
   N_extr    <- boosted[[sprintf("N_extr_%s",    which)]]
   N_bg      <- boosted[[sprintf("N_bg_%s",      which)]]
 
-  # Pull (Tree, leaf_id) → SNP map
+  # Pull (Tree, leaf_id) -> SNP map
   snps_all_by_leaf <- boosted[[sprintf("snps_all_by_leaf_%s",   which)]]
-  # Pull rule → (Tree, leaf_id) map
+  # Pull rule -> (Tree, leaf_id) map
   leaf_rule_cache <- boosted$leaf_rule_cache
 
   # If fold_indices != null, ensure that they are a valid vector of integers
@@ -168,7 +170,8 @@ analyze_rule_overlap <- function(boosted,
       bucket_ext[[k]] <- a
       bucket_bg[[k]]  <- g
 
-      # convert global SNP indices to consecutive element IDs for MILP
+      # Convert global SNP indices to consecutive element IDs for downstream
+      # selection functions
       A_sets[[k]] <- map_ext[a]
       B_sets[[k]] <- map_bg[g]
     } else {
@@ -243,6 +246,25 @@ analyze_rule_overlap <- function(boosted,
   n_ext <- as.integer(diag(I_ext))
   n_bg  <- as.integer(diag(I_bg))
 
+  # Per-rule summary table: one row per entry in rule_ids.
+  # omega is the rule-level LLR with Jeffreys smoothing at alpha.
+  rule_summary <- data.table::data.table(
+    rule_str  = rule_ids,
+    n_clauses = n_clauses_by_rule,
+    n_ext     = n_ext,
+    n_bg      = n_bg,
+    n_all     = n_all,
+    omega     = vapply(seq_len(K), function(k) {
+      .rule_llr(
+        n_extreme    = n_ext[k],
+        n_bg         = n_bg[k],
+        N_extr_total = N_extr,
+        N_bg_total   = N_bg,
+        alpha        = alpha
+      )
+    }, numeric(1L))
+  )
+
   # Jaccard matrices over extreme / background / all SNPs
   # Use the same convention as before: if union is 0, Jaccard = 0.
   .jaccard_from_intersections <- function(I, nA) {
@@ -312,6 +334,15 @@ analyze_rule_overlap <- function(boosted,
     prop_all_i_in_j <- ifelse(n_all_i > 0L, n_all_intersect / n_all_i, NA_real_)
     prop_all_j_in_i <- ifelse(n_all_j > 0L, n_all_intersect / n_all_j, NA_real_)
 
+    # Directional containment on extreme SNPs only.
+    # prop_ext_i_in_j: fraction of i's extreme SNPs that are also in j's bucket.
+    # prop_ext_j_in_i: fraction of j's extreme SNPs that are also in i's bucket.
+    # These are the primary edge weights for the dominance DAG in
+    # build_rule_dag(): a high prop_ext_j_in_i means i nearly subsumes j's
+    # extreme coverage, making j a candidate for removal.
+    prop_ext_i_in_j <- ifelse(n_ext_i > 0L, n_ext_intersect / n_ext_i, NA_real_)
+    prop_ext_j_in_i <- ifelse(n_ext_j > 0L, n_ext_intersect / n_ext_j, NA_real_)
+
     # Jaccard vectors (duplicated from matrices, but handy here)
     jacc_all <- J_all[cbind(i_index, j_index)]
     jacc_ext <- J_ext[cbind(i_index, j_index)]
@@ -355,6 +386,10 @@ analyze_rule_overlap <- function(boosted,
       prop_all_i_in_j = prop_all_i_in_j,
       prop_all_j_in_i = prop_all_j_in_i,
 
+      # directional containment on extreme SNPs (primary DAG edge weights)
+      prop_ext_i_in_j = prop_ext_i_in_j,
+      prop_ext_j_in_i = prop_ext_j_in_i,
+
       # Jaccard (duplicated from matrices, but handy here)
       jacc_ext = jacc_ext,
       jacc_bg  = jacc_bg,
@@ -369,17 +404,18 @@ analyze_rule_overlap <- function(boosted,
   overlap_tbl <- .drop_all_na_cols(overlap_tbl)
 
   list(
-    overlap     = overlap_tbl[],
-    rule_ids    = rule_ids,
-    jaccard_ext = J_ext,
-    jaccard_bg  = J_bg,
-    jaccard_all = J_all,
-    sets        = list(
+    overlap      = overlap_tbl[],
+    rule_ids     = rule_ids,
+    rule_summary = rule_summary[],
+    jaccard_ext  = J_ext,
+    jaccard_bg   = J_bg,
+    jaccard_all  = J_all,
+    sets         = list(
       A_sets = A_sets,
       B_sets = B_sets,
       A_n    = length(extr_idx),
       B_n    = length(bg_idx)),
-    meta        = list(
+    meta         = list(
       which       = which,
       fold_n_all  = n_tot,
       fold_n_extr = N_extr,
