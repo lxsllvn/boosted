@@ -9,6 +9,8 @@ permute_null(
   gain_grid = seq(0.05, 0.5, 0.05),
   R = 1000L,
   alpha = 0.5,
+  method = c("hard_label", "soft_label"),
+  model_llr_weight = 0.5,
   progress_every = NULL
 )
 }

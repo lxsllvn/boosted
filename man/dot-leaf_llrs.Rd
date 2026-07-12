@@ -2,67 +2,64 @@
 % Please edit documentation in R/leaf_llrs.R
 \name{.leaf_llrs}
 \alias{.leaf_llrs}
-\title{Compute per-leaf log-likelihood ratios for a subset of trees}
+\title{Compute per-leaf log-likelihood ratios from stacked leaf evidence}
 \usage{
 .leaf_llrs(
-  extr_idx,
-  bg_idx,
-  train_leaf_map,
-  N_extr,
-  N_bg,
+  ce_all,
+  cb_all,
+  n_leaves,
   tree_idx,
+  N_E,
+  N_B,
   alpha = 0.5,
-  return_ids = FALSE
+  use_rcpp = TRUE
 )
 }
 \arguments{
-\item{extr_idx}{Integer vector of 1-based SNP indices identifying the
-extreme training set.}
+\item{ce_all}{Numeric vector of stacked extreme counts or masses.}
 
-\item{bg_idx}{Integer vector of 1-based SNP indices identifying the
-background training set.}
+\item{cb_all}{Numeric vector of stacked background counts or masses.}
 
-\item{train_leaf_map}{Named list returned by \code{.build_train_leaf_map},
-containing \code{dense_leaf_ids} (per-tree compact leaf assignments for
-all training SNPs) and \code{n_leaves} (leaf count per tree).}
+\item{n_leaves}{Integer vector giving the leaf count for every tree.}
 
-\item{N_extr}{Integer scalar: total number of extreme training SNPs
-(denominator for the extreme probability).}
+\item{tree_idx}{Integer vector defining the tree order in the stacked
+vectors.}
 
-\item{N_bg}{Integer scalar: total number of background training SNPs
-(denominator for the background probability).}
+\item{N_E}{Extreme count or effective mass.}
 
-\item{tree_idx}{Integer vector of 1-based tree indices to evaluate. Allows
-the caller to score a subset of trees without reordering data.}
+\item{N_B}{Background count or effective mass.}
 
-\item{alpha}{Numeric scalar \eqn{\ge 0}. Jeffreys-prior concentration; see
-\code{\link{.boosted_params}}.}
+\item{alpha}{Non-negative finite smoothing concentration.}
 
-\item{return_ids}{Logical. If \code{TRUE}, the native \code{xgboost} leaf ID for
-each dense leaf index is included in the return value. Defaults to
-\code{FALSE}.}
+\item{use_rcpp}{Logical. Use the compiled LLR backend when available.}
 }
 \value{
-A named list with the following elements:
-\describe{
-\item{\code{leaf_llrs_by_tree}}{A list of length \code{length(tree_idx)}.
-Element \code{j} is a numeric vector of length \eqn{L_t}{} (the number
-of dense leaves in tree \code{tree_idx[j]}) containing the LLR for each
-leaf. Leaves with no labelled SNPs carry \code{NA}.}
-\item{\code{native_leaf_ids}}{Only present when \code{return_ids = TRUE}.
-A list of length \code{length(tree_idx)} where element \code{j} is an
-integer vector of the native \code{xgboost} leaf IDs corresponding to each
-position in \code{leaf_llrs_by_tree[[j]]}.}
-}
+Named list with \code{leaf_llrs_by_tree} and \code{tree_idx}.
+\code{leaf_llrs_by_tree[[j]]} is a numeric vector of length
+\code{n_leaves[tree_idx[j]]}; \code{NA} entries mark leaves with no
+labelled evidence.
 }
 \description{
-For each tree in \code{tree_idx}, tabulates how many extreme and background
-training SNPs fall in each leaf, then computes a log-likelihood ratio (LLR)
-comparing the empirical probability of that leaf assignment under the extreme
-distribution to the background distribution. Jeffreys-prior smoothing
-(\code{alpha > 0}) shrinks the raw counts toward a uniform prior over
-leaves, preventing extreme LLRs in sparsely occupied leaves. Leaves that
-contain no labelled SNPs at all receive \code{NA} rather than a spurious
-LLR.
+Converts stacked E and B leaf evidence into per-tree leaf log-likelihood
+ratios (LLRs). For each requested tree and each occupied dense leaf, the LLR
+compares the estimated probability of landing in that leaf under the E
+distribution against the corresponding probability under the B distribution:
+\deqn{\log\left(p_E(\ell) / p_B(\ell)\right).}
+}
+\details{
+The inputs \code{ce_all} and \code{cb_all} may be ordinary hard-label counts
+from \code{\link{.stack_leaf_counts}} or fractional soft-label masses from
+\code{\link{.stack_leaf_masses}}. Both use the same stacked tree-block layout
+defined by \code{tree_idx}.
+
+With \code{alpha > 0}, Jeffreys/prior smoothing shrinks each tree's leaf
+probabilities toward a uniform distribution over that tree's \eqn{L} dense
+leaves:
+\deqn{p_E(\ell) = (c_E(\ell) + \alpha) / (N_E + \alpha L),}
+\deqn{p_B(\ell) = (c_B(\ell) + \alpha) / (N_B + \alpha L).}
+With \code{alpha = 0}, empirical probabilities are used with a tiny epsilon
+floor to avoid \code{log(0)}. Leaves with no E or B evidence
+(\code{ce + cb == 0}) are left as \code{NA} rather than being assigned a
+spurious LLR; downstream scoring ignores those missing leaf contributions.
 }
 \keyword{internal}

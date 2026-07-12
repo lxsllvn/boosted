@@ -12,10 +12,11 @@
 #'
 #' @param background_k Positive numeric scalar. Fixed bandwidth for the
 #'   background set, in units of the training spread. Extreme \code{k} values
-#'   that equal or fall below \code{background_k} are dropped with a warning
-#'   to prevent overlap between sets.
+#'   below \code{background_k} are dropped with a warning. Equality is allowed:
+#'   the background interval is strict while the extreme boundary is inclusive,
+#'   so the sets remain disjoint.
 #' @param k_grid Numeric vector of positive extreme boundary values to
-#'   evaluate. Values \eqn{\le} \code{background_k} are silently dropped.
+#'   evaluate. Values \eqn{<} \code{background_k} are dropped.
 #' @inheritParams .boosted_params
 #'
 #' @return A named list with two elements:
@@ -39,6 +40,8 @@ extreme_sensitivity <- function(boosted,
                                 k_grid         = seq(1.25, 1.5, 0.25),
                                 R              = 1000L,
                                 alpha          = 0.5,
+                                method         = c("hard_label", "soft_label"),
+                                model_llr_weight = 0.5,
                                 gain_grid      = seq(0.05, 0.50, 0.05),
                                 verbose        = FALSE,
                                 progress_every = NULL) {
@@ -62,10 +65,25 @@ extreme_sensitivity <- function(boosted,
   Tm             <- boosted$Tm
   train_leaf_map <- boosted$train_leaf_map
   test_leaf_map  <- boosted$test_leaf_map
+  oof_prediction_train <- boosted$oof_prediction_train
 
   # Parse input arguments
   center <- match.arg(center)
   scale  <- match.arg(scale)
+  method <- match.arg(method)
+  use_soft_labels <- method == "soft_label"
+  use_hard_labels <- method == "hard_label"
+  if (!is.numeric(model_llr_weight) || length(model_llr_weight) != 1L ||
+      !is.finite(model_llr_weight) || model_llr_weight < 0) {
+    stop(sprintf("[%s] model_llr_weight must be one non-negative finite number.", FUN))
+  }
+  if (!is.logical(lower_tail) || length(lower_tail) != 1L ||
+      is.na(lower_tail)) {
+    stop(sprintf("[%s] lower_tail must be TRUE or FALSE.", FUN))
+  }
+  if (use_soft_labels && is.null(oof_prediction_train)) {
+    stop(sprintf("[%s] method = 'soft_label' requires boosted$oof_prediction_train.", FUN))
+  }
   resample_on <- (R > 1L)
   fixed_ext_n <- NA_integer_
 
@@ -76,7 +94,7 @@ extreme_sensitivity <- function(boosted,
   }
 
   # Ensure extreme k grid does not intersect with fixed background_k
-  k_ok <- k_grid[k_grid > background_k]
+  k_ok <- k_grid[k_grid >= background_k]
   # If problematic ks are present, try dropping them
   if (length(k_ok) < length(k_grid)) {
     message(
@@ -181,18 +199,17 @@ extreme_sensitivity <- function(boosted,
     else
       R
 
-    # Pre-compute background leaf counts for this k. B_tr is constant across
-    # all R iterations, so one compiled count pass here replaces repeated
-    # per-tree tabulation in the hot loop.
-    cb_leaf_k <- .leaf_llrs_fast(
-      bg_idx         = B_tr,
-      train_leaf_map = train_leaf_map,
-      N_extr         = length(E_tr_all),
-      N_bg           = length(B_tr),
-      tree_idx       = seq_len(Tm),
-      alpha          = alpha,
-      return_counts  = TRUE
-    )
+    cb_fixed_all <- NULL
+    if (use_hard_labels) {
+      # Hard-label path: B_tr is fixed for this k, while E_tr may vary by
+      # replicate. Count the fixed B side once and reuse it in the hot loop.
+      cb_fixed_all <- .stack_leaf_counts(
+        idx = B_tr,
+        train_leaf_map = train_leaf_map,
+        tree_idx = seq_len(Tm),
+        use_fast_counts = TRUE
+      )
+    }
 
     # Per-k iterations
     for (r in seq_len(R_eff)) {
@@ -205,18 +222,57 @@ extreme_sensitivity <- function(boosted,
         E_tr <- E_tr_all
       }
 
-      # Compute leaf LLRs from training SNPs. The sparse matvec path replaces
-      # Tm tabulate() calls per iteration; cb is supplied from the per-k
-      # pre-computation above.
-      enr <- .leaf_llrs_fast(
-        extr_idx       = E_tr,
-        train_leaf_map = train_leaf_map,
-        N_extr         = length(E_tr),
-        N_bg           = length(B_tr),
-        tree_idx       = seq_len(Tm),
-        alpha          = alpha,
-        fixed_cb_all   = cb_leaf_k
+      if (use_hard_labels) {
+        # Hard-label path: varying E counts, fixed B counts.
+        ce_all <- .stack_leaf_counts(
+          idx = E_tr,
+          train_leaf_map = train_leaf_map,
+          tree_idx = seq_len(Tm),
+          use_fast_counts = TRUE
         )
+        enr <- .leaf_llrs(
+          ce_all = ce_all,
+          cb_all = cb_fixed_all,
+          n_leaves = train_leaf_map$n_leaves,
+          tree_idx = seq_len(Tm),
+          N_E = length(E_tr),
+          N_B = length(B_tr),
+          alpha = alpha
+        )
+      } else {
+        # Soft-label path: q depends on the current E/B sets, so support and
+        # fractional leaf masses are recomputed for each replicate.
+        support <- .soft_label_support(
+          extr_idx       = E_tr,
+          bg_idx         = B_tr,
+          oof_prediction_train = oof_prediction_train,
+          yvar_train     = yvar_train,
+          model_llr_weight = model_llr_weight,
+          lower_tail     = lower_tail
+        )
+        ce_all <- .stack_leaf_masses(
+          idx = support$labelled_idx,
+          weights = support$q,
+          train_leaf_map = train_leaf_map,
+          tree_idx = seq_len(Tm)
+        )
+        cb_all <- .stack_leaf_masses(
+          idx = support$labelled_idx,
+          weights = 1 - support$q,
+          train_leaf_map = train_leaf_map,
+          tree_idx = seq_len(Tm)
+        )
+        enr <- .leaf_llrs(
+          ce_all = ce_all,
+          cb_all = cb_all,
+          n_leaves = train_leaf_map$n_leaves,
+          tree_idx = seq_len(Tm),
+          N_E = support$diagnostics$n_extreme_effective,
+          N_B = support$diagnostics$n_background_effective,
+          alpha = alpha
+        )
+        enr$diagnostics <- support$diagnostics
+      }
 
       # Score test SNPs
       s_te <- .score_snps(

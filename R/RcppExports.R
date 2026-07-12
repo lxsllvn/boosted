@@ -5,8 +5,16 @@
     .Call(`_boosted_build_lookup_rcpp`, dense_leaf_ids, native_leaf_ids, extr_idx_sexp, bg_idx_sexp, all)
 }
 
-.leaf_llrs_backend_rcpp <- function(dense_leaf_ids, n_leaves, N_extr, N_bg, alpha, extr_idx_sexp = NULL, bg_idx_sexp = NULL, fixed_ce_all_sexp = NULL, fixed_cb_all_sexp = NULL, pool_counts_all_sexp = NULL, tree_idx_sexp = NULL, return_counts = FALSE) {
-    .Call(`_boosted_leaf_llrs_backend_rcpp`, dense_leaf_ids, n_leaves, N_extr, N_bg, alpha, extr_idx_sexp, bg_idx_sexp, fixed_ce_all_sexp, fixed_cb_all_sexp, pool_counts_all_sexp, tree_idx_sexp, return_counts)
+.stack_leaf_counts_rcpp <- function(dense_leaf_ids, n_leaves, idx, tree_idx) {
+    .Call(`_boosted_stack_leaf_counts_rcpp`, dense_leaf_ids, n_leaves, idx, tree_idx)
+}
+
+.stack_leaf_masses_rcpp <- function(dense_leaf_ids, n_leaves, idx, weights, tree_idx) {
+    .Call(`_boosted_stack_leaf_masses_rcpp`, dense_leaf_ids, n_leaves, idx, weights, tree_idx)
+}
+
+.leaf_llrs_rcpp <- function(ce_all, cb_all, n_leaves, tree_idx, N_E, N_B, alpha = 0.5) {
+    .Call(`_boosted_leaf_llrs_rcpp`, ce_all, cb_all, n_leaves, tree_idx, N_E, N_B, alpha)
 }
 
 .score_snps_rcpp <- function(test_leaf_map, leaf_llrs_by_tree, Tm, n) {

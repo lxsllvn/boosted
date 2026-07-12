@@ -25,25 +25,49 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// leaf_llrs_backend_rcpp
-SEXP leaf_llrs_backend_rcpp(List dense_leaf_ids, IntegerVector n_leaves, int N_extr, int N_bg, double alpha, SEXP extr_idx_sexp, SEXP bg_idx_sexp, SEXP fixed_ce_all_sexp, SEXP fixed_cb_all_sexp, SEXP pool_counts_all_sexp, SEXP tree_idx_sexp, bool return_counts);
-RcppExport SEXP _boosted_leaf_llrs_backend_rcpp(SEXP dense_leaf_idsSEXP, SEXP n_leavesSEXP, SEXP N_extrSEXP, SEXP N_bgSEXP, SEXP alphaSEXP, SEXP extr_idx_sexpSEXP, SEXP bg_idx_sexpSEXP, SEXP fixed_ce_all_sexpSEXP, SEXP fixed_cb_all_sexpSEXP, SEXP pool_counts_all_sexpSEXP, SEXP tree_idx_sexpSEXP, SEXP return_countsSEXP) {
+// stack_leaf_counts_rcpp
+NumericVector stack_leaf_counts_rcpp(List dense_leaf_ids, IntegerVector n_leaves, IntegerVector idx, IntegerVector tree_idx);
+RcppExport SEXP _boosted_stack_leaf_counts_rcpp(SEXP dense_leaf_idsSEXP, SEXP n_leavesSEXP, SEXP idxSEXP, SEXP tree_idxSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type dense_leaf_ids(dense_leaf_idsSEXP);
     Rcpp::traits::input_parameter< IntegerVector >::type n_leaves(n_leavesSEXP);
-    Rcpp::traits::input_parameter< int >::type N_extr(N_extrSEXP);
-    Rcpp::traits::input_parameter< int >::type N_bg(N_bgSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type tree_idx(tree_idxSEXP);
+    rcpp_result_gen = Rcpp::wrap(stack_leaf_counts_rcpp(dense_leaf_ids, n_leaves, idx, tree_idx));
+    return rcpp_result_gen;
+END_RCPP
+}
+// stack_leaf_masses_rcpp
+NumericVector stack_leaf_masses_rcpp(List dense_leaf_ids, IntegerVector n_leaves, IntegerVector idx, NumericVector weights, IntegerVector tree_idx);
+RcppExport SEXP _boosted_stack_leaf_masses_rcpp(SEXP dense_leaf_idsSEXP, SEXP n_leavesSEXP, SEXP idxSEXP, SEXP weightsSEXP, SEXP tree_idxSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type dense_leaf_ids(dense_leaf_idsSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type n_leaves(n_leavesSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type weights(weightsSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type tree_idx(tree_idxSEXP);
+    rcpp_result_gen = Rcpp::wrap(stack_leaf_masses_rcpp(dense_leaf_ids, n_leaves, idx, weights, tree_idx));
+    return rcpp_result_gen;
+END_RCPP
+}
+// leaf_llrs_rcpp
+List leaf_llrs_rcpp(NumericVector ce_all, NumericVector cb_all, IntegerVector n_leaves, IntegerVector tree_idx, double N_E, double N_B, double alpha);
+RcppExport SEXP _boosted_leaf_llrs_rcpp(SEXP ce_allSEXP, SEXP cb_allSEXP, SEXP n_leavesSEXP, SEXP tree_idxSEXP, SEXP N_ESEXP, SEXP N_BSEXP, SEXP alphaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type ce_all(ce_allSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type cb_all(cb_allSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type n_leaves(n_leavesSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type tree_idx(tree_idxSEXP);
+    Rcpp::traits::input_parameter< double >::type N_E(N_ESEXP);
+    Rcpp::traits::input_parameter< double >::type N_B(N_BSEXP);
     Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type extr_idx_sexp(extr_idx_sexpSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type bg_idx_sexp(bg_idx_sexpSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type fixed_ce_all_sexp(fixed_ce_all_sexpSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type fixed_cb_all_sexp(fixed_cb_all_sexpSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type pool_counts_all_sexp(pool_counts_all_sexpSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type tree_idx_sexp(tree_idx_sexpSEXP);
-    Rcpp::traits::input_parameter< bool >::type return_counts(return_countsSEXP);
-    rcpp_result_gen = Rcpp::wrap(leaf_llrs_backend_rcpp(dense_leaf_ids, n_leaves, N_extr, N_bg, alpha, extr_idx_sexp, bg_idx_sexp, fixed_ce_all_sexp, fixed_cb_all_sexp, pool_counts_all_sexp, tree_idx_sexp, return_counts));
+    rcpp_result_gen = Rcpp::wrap(leaf_llrs_rcpp(ce_all, cb_all, n_leaves, tree_idx, N_E, N_B, alpha));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -78,7 +102,9 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_boosted_build_lookup_rcpp", (DL_FUNC) &_boosted_build_lookup_rcpp, 5},
-    {"_boosted_leaf_llrs_backend_rcpp", (DL_FUNC) &_boosted_leaf_llrs_backend_rcpp, 12},
+    {"_boosted_stack_leaf_counts_rcpp", (DL_FUNC) &_boosted_stack_leaf_counts_rcpp, 4},
+    {"_boosted_stack_leaf_masses_rcpp", (DL_FUNC) &_boosted_stack_leaf_masses_rcpp, 5},
+    {"_boosted_leaf_llrs_rcpp", (DL_FUNC) &_boosted_leaf_llrs_rcpp, 7},
     {"_boosted_score_snps_rcpp", (DL_FUNC) &_boosted_score_snps_rcpp, 4},
     {"_boosted_snp_lookup_rcpp", (DL_FUNC) &_boosted_snp_lookup_rcpp, 4},
     {NULL, NULL, 0}

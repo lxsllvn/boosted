@@ -13,6 +13,8 @@ extreme_sensitivity(
   k_grid = seq(1.25, 1.5, 0.25),
   R = 1000L,
   alpha = 0.5,
+  method = c("hard_label", "soft_label"),
+  model_llr_weight = 0.5,
   gain_grid = seq(0.05, 0.5, 0.05),
   verbose = FALSE,
   progress_every = NULL
@@ -24,8 +26,9 @@ or a \code{boosted_harvest} object returned by \code{\link{prepare_harvest}}.}
 
 \item{background_k}{Positive numeric scalar. Fixed bandwidth for the
 background set, in units of the training spread. Extreme \code{k} values
-that equal or fall below \code{background_k} are dropped with a warning
-to prevent overlap between sets.}
+below \code{background_k} are dropped with a warning. Equality is allowed:
+the background interval is strict while the extreme boundary is inclusive,
+so the sets remain disjoint.}
 
 \item{lower_tail}{Logical. If \code{FALSE} (default), the extreme set is the
 upper tail (\eqn{\mu + k \cdot \sigma}); if \code{TRUE}, it is the lower
@@ -40,7 +43,7 @@ Measure of spread used when standardising \code{yvar_train} to define
 extreme and background set boundaries.}
 
 \item{k_grid}{Numeric vector of positive extreme boundary values to
-evaluate. Values \eqn{\le} \code{background_k} are silently dropped.}
+evaluate. Values \eqn{<} \code{background_k} are dropped.}
 
 \item{R}{Positive integer. Number of resampling or permutation iterations.}
 

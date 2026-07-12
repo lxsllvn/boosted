@@ -9,6 +9,8 @@ tree_sensitivity(
   subsample_grid = seq(0.1, 0.5, 0.1),
   R = 50L,
   alpha = 0.5,
+  method = c("hard_label", "soft_label"),
+  model_llr_weight = 0.5,
   gain_grid = seq(0.05, 0.5, 0.05),
   topk_frac = 0.05,
   verbose = FALSE,

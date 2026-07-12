@@ -40,6 +40,8 @@ tree_sensitivity <- function(boosted,
                              subsample_grid = seq(0.10, 0.50, 0.10),
                              R              = 50L,
                              alpha          = 0.5,
+                             method         = c("hard_label", "soft_label"),
+                             model_llr_weight = 0.5,
                              gain_grid      = seq(0.05, 0.50, 0.05),
                              topk_frac      = 0.05,
                              verbose        = FALSE,
@@ -61,11 +63,24 @@ tree_sensitivity <- function(boosted,
   bg_idx_train   <- boosted$bg_idx_train
   N_extr_train   <- boosted$N_extr_train
   N_bg_train     <- boosted$N_bg_train
+  yvar_train     <- boosted$yvar_train
   extr_idx_test  <- boosted$extr_idx_test
+  bg_idx_test    <- boosted$bg_idx_test
   n_yvar_test    <- boosted$n_yvar_test
   Tm             <- boosted$Tm
   train_leaf_map <- boosted$train_leaf_map
   test_leaf_map  <- boosted$test_leaf_map
+  oof_prediction_train <- boosted$oof_prediction_train
+  method <- match.arg(method)
+  use_soft_labels <- method == "soft_label"
+  use_hard_labels <- method == "hard_label"
+  if (!is.numeric(model_llr_weight) || length(model_llr_weight) != 1L ||
+      !is.finite(model_llr_weight) || model_llr_weight < 0) {
+    stop(sprintf("[%s] model_llr_weight must be one non-negative finite number.", FUN))
+  }
+  if (use_soft_labels && is.null(oof_prediction_train)) {
+    stop(sprintf("[%s] method = 'soft_label' requires boosted$oof_prediction_train.", FUN))
+  }
 
   # Guard requested grid against duplicates and values == 0 or > 1
   grid_eval <- sort(unique(pmin(0.999, pmax(1e-3, gain_grid))))
@@ -75,21 +90,75 @@ tree_sensitivity <- function(boosted,
 
   k_top <- max(1L, as.integer(round(topk_frac * n_yvar_test)))
 
+  soft_support <- NULL
+  if (use_soft_labels) {
+    # Tree subsampling changes only the tree set; soft support for the labelled
+    # training SNPs is fixed and can be computed once.
+    soft_support <- .soft_label_support(
+      extr_idx = extr_idx_train,
+      bg_idx = bg_idx_train,
+      oof_prediction_train = oof_prediction_train,
+      yvar_train = yvar_train,
+      model_llr_weight = model_llr_weight,
+      lower_tail = NULL
+    )
+  }
+
   # Helper: compute enrichment and score using a subset of trees
   .fit_subset <- function(trees) {
     trees <- sort(unique(as.integer(trees)))
     if (!length(trees))
       stop(sprintf("[%s] internal: empty tree subset.", FUN))
 
-    enr <- .leaf_llrs(
-      extr_idx       = extr_idx_train,
-      bg_idx         = bg_idx_train,
-      train_leaf_map = train_leaf_map,
-      N_extr         = N_extr_train,
-      N_bg           = N_bg_train,
-      tree_idx       = trees,
-      alpha          = alpha
-    )
+    if (use_hard_labels) {
+      # Hard-label path: stack E/B counts on the sampled tree subset.
+      ce_all <- .stack_leaf_counts(
+        idx            = extr_idx_train,
+        train_leaf_map = train_leaf_map,
+        tree_idx       = trees,
+        use_fast_counts = TRUE
+      )
+      cb_all <- .stack_leaf_counts(
+        idx            = bg_idx_train,
+        train_leaf_map = train_leaf_map,
+        tree_idx       = trees,
+        use_fast_counts = TRUE
+      )
+      enr <- .leaf_llrs(
+        ce_all = ce_all,
+        cb_all = cb_all,
+        n_leaves = train_leaf_map$n_leaves,
+        tree_idx = trees,
+        N_E = N_extr_train,
+        N_B = N_bg_train,
+        alpha = alpha
+      )
+    } else {
+      # Soft-label path: reuse fixed q values, but restack their masses on the
+      # sampled tree subset.
+      ce_all <- .stack_leaf_masses(
+        idx = soft_support$labelled_idx,
+        weights = soft_support$q,
+        train_leaf_map = train_leaf_map,
+        tree_idx = trees
+      )
+      cb_all <- .stack_leaf_masses(
+        idx = soft_support$labelled_idx,
+        weights = 1 - soft_support$q,
+        train_leaf_map = train_leaf_map,
+        tree_idx = trees
+      )
+      enr <- .leaf_llrs(
+        ce_all = ce_all,
+        cb_all = cb_all,
+        n_leaves = train_leaf_map$n_leaves,
+        tree_idx = trees,
+        N_E = soft_support$diagnostics$n_extreme_effective,
+        N_B = soft_support$diagnostics$n_background_effective,
+        alpha = alpha
+      )
+      enr$diagnostics <- soft_support$diagnostics
+    }
     sc <- .score_snps(
       test_leaf_map     = test_leaf_map,
       leaf_llrs_by_tree = enr,
@@ -100,21 +169,8 @@ tree_sensitivity <- function(boosted,
   }
 
   # Baseline: full-model scores for diagnostics
-  enr_full <- .leaf_llrs(
-    extr_idx       = extr_idx_train,
-    bg_idx         = bg_idx_train,
-    train_leaf_map = train_leaf_map,
-    N_extr         = N_extr_train,
-    N_bg           = N_bg_train,
-    tree_idx       = seq_len(Tm),
-    alpha          = alpha
-  )
-  s_full <- .score_snps(
-    test_leaf_map     = test_leaf_map,
-    leaf_llrs_by_tree = enr_full,
-    Tm                = Tm,
-    n                 = n_yvar_test
-  )$scores
+  full_fit <- .fit_subset(seq_len(Tm))
+  s_full <- full_fit$scores
 
   top_full <- utils::head(order(s_full, decreasing = TRUE), k_top)
 
@@ -152,6 +208,7 @@ tree_sensitivity <- function(boosted,
         scores   = s_vec,
         n        = n_yvar_test,
         extr_idx = extr_idx_test,
+        bg_idx   = bg_idx_test,
         grid     = grid_eval
       )
 
@@ -166,8 +223,12 @@ tree_sensitivity <- function(boosted,
       rr <- rr + 1L
 
       # Diagnostics vs full
-      cor_vs_full  <-
-        stats::cor(s_vec, s_full, method = "spearman", use = "pairwise.complete.obs")
+      cor_vs_full <- suppressWarnings(stats::cor(
+        s_vec,
+        s_full,
+        method = "spearman",
+        use = "pairwise.complete.obs"
+      ))
       top_sub      <-
         utils::head(order(s_vec, decreasing = TRUE), k_top)
       jacc_vs_full <- .jacc(top_full, top_sub)
