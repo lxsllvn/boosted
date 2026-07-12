@@ -8,16 +8,22 @@
 #' contribute to the mean for that SNP. SNPs with no contributing trees
 #' receive a score of \code{NA}.
 #'
-#' @param test_leaf_map Named list returned by \code{.build_test_leaf_map},
-#'   containing \code{dense_leaf_ids}: a list of length \code{Tm} where
-#'   element \code{t} is an integer vector of length \eqn{n_\text{test}}{}
-#'   giving each test SNP's position in the training leaf vocabulary for
-#'   tree \code{t} (0 for leaves unseen in training).
-#' @param leaf_llrs_by_tree Named list returned by \code{.leaf_llrs} or
-#'   \code{.leaf_llrs_fast}, containing \code{leaf_llrs_by_tree}: a list of
-#'   length \code{Tm} where element \code{t} is a numeric vector of LLRs
-#'   indexed by dense leaf position.
-#' @param Tm Integer scalar: number of trees.
+#' This low-level R backend expects an already aligned leaf map: element
+#' \code{j} of \code{test_leaf_map$dense_leaf_ids} must correspond to element
+#' \code{j} of \code{leaf_llrs_by_tree$leaf_llrs_by_tree}. Use
+#' \code{.score_snps()} in normal code; it receives the full test leaf map
+#' from \code{make_boosted()} and slices it by the \code{tree_idx} metadata
+#' returned by \code{.leaf_llrs()}.
+#'
+#' @param test_leaf_map Named list containing \code{dense_leaf_ids}: an
+#'   already aligned list where element \code{j} is an integer vector of
+#'   length \eqn{n_\text{test}}{} giving each test SNP's dense leaf position
+#'   for the corresponding scored tree (0 for leaves unseen in training).
+#' @param leaf_llrs_by_tree Named list returned by \code{.leaf_llrs()},
+#'   containing \code{leaf_llrs_by_tree}: a list where element \code{j} is a
+#'   numeric vector of LLRs indexed by dense leaf position for the same scored
+#'   tree.
+#' @param Tm Integer scalar: number of scored trees.
 #' @param n Integer scalar: total number of test SNPs.
 #'
 #' @return A named list with a single element:
@@ -28,65 +34,83 @@
 #'     receive \code{NA}.}
 #' }
 #' @keywords internal
-
 .score_snps_r <- function(test_leaf_map,
                           leaf_llrs_by_tree,
                           Tm,
                           n) {
-  # Initialize accumulators
-  llrs_sum  <- numeric(n)
-  used_llrs <- integer(n)
-
-  # Extract dense leaf IDs for test SNPs
+  # Extract dense leaf IDs for test SNPs and corresponding leaf LLRs.
   pos_list <- test_leaf_map$dense_leaf_ids
-  # Extract leaf LLRs
   con_list <- leaf_llrs_by_tree$leaf_llrs_by_tree
 
-  # Loop over trees
+  # Initialize accumulators.
+  llrs_sum <- numeric(n)
+  used_llrs <- integer(n)
+
+  # Loop over scored trees.
   for (t in seq_len(Tm)) {
     pos_t <- pos_list[[t]]
     if (length(pos_t) == 0L)
       next
-    # only leaves seen in the labeled training set
-    ok  <- pos_t > 0L
+
+    # Only leaves seen in the labelled training set contribute.
+    ok <- pos_t > 0L
     if (!any(ok))
       next
 
-    idx   <- which(ok)
-    pidx  <- pos_t[idx]           # dense leaf indices 1..L_t
-    v_con <- con_list[[t]][pidx]  # may contain NA
+    idx <- which(ok)
+    pidx <- pos_t[idx]
+    v_con <- con_list[[t]][pidx]
 
     good <- !is.na(v_con)
     if (any(good)) {
-      ii            <- idx[good]
-      llrs_sum[ii]  <- llrs_sum[ii]  + v_con[good]
+      ii <- idx[good]
+      llrs_sum[ii] <- llrs_sum[ii] + v_con[good]
       used_llrs[ii] <- used_llrs[ii] + 1L
     }
   }
 
-  # Finalize: mean over contributing trees; SNPs with no leaf evidence are NA
-  scores        <- rep(NA_real_, n)
-  has_s         <- used_llrs > 0L
+  # Finalize: mean over contributing trees; SNPs with no leaf evidence are NA.
+  scores <- rep(NA_real_, n)
+  has_s <- used_llrs > 0L
   scores[has_s] <- llrs_sum[has_s] / used_llrs[has_s]
-
   list(scores = scores)
 }
 
-#' Internal dispatcher for score_snps
+
+#' Internal dispatcher for SNP scoring
+#'
+#' Normal package callers pass the full \code{test_leaf_map} from
+#' \code{make_boosted()}. The leaf-LLR object records which trees were used in
+#' \code{tree_idx}; this dispatcher slices the full map to that tree order and
+#' then hands the aligned blocks to the R or Rcpp backend.
+#'
 #' @keywords internal
 .score_snps <- function(test_leaf_map,
                         leaf_llrs_by_tree,
                         Tm,
-                        n, use_rcpp = TRUE) {
-  if (use_rcpp && exists(".score_snps_rcpp", mode = "function", inherits = TRUE)) {
-    .score_snps_rcpp(test_leaf_map,
-                     leaf_llrs_by_tree,
-                     Tm,
-                     n)
+                        n,
+                        use_rcpp = TRUE) {
+  # The leaf-LLR object defines the scored tree subset and order.
+  tree_idx <- leaf_llrs_by_tree$tree_idx
+  aligned_test_leaf_map <- list(
+    dense_leaf_ids = test_leaf_map$dense_leaf_ids[tree_idx]
+  )
+  aligned_Tm <- length(tree_idx)
+
+  if (isTRUE(use_rcpp) &&
+      exists(".score_snps_rcpp", mode = "function", inherits = TRUE)) {
+    .score_snps_rcpp(
+      aligned_test_leaf_map,
+      leaf_llrs_by_tree,
+      aligned_Tm,
+      n
+    )
   } else {
-    .score_snps_r(test_leaf_map,
-                  leaf_llrs_by_tree,
-                  Tm,
-                  n)
+    .score_snps_r(
+      aligned_test_leaf_map,
+      leaf_llrs_by_tree,
+      aligned_Tm,
+      n
+    )
   }
 }

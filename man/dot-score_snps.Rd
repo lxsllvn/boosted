@@ -2,11 +2,11 @@
 % Please edit documentation in R/score_snps.R
 \name{.score_snps}
 \alias{.score_snps}
-\title{Internal dispatcher for score_snps}
+\title{Internal dispatcher for SNP scoring}
 \usage{
 .score_snps(test_leaf_map, leaf_llrs_by_tree, Tm, n, use_rcpp = TRUE)
 }
 \description{
-Internal dispatcher for score_snps
+Internal dispatcher for SNP scoring
 }
 \keyword{internal}
