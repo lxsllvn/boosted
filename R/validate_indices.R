@@ -71,14 +71,34 @@
                               bg_idx_test,
                               caller = ".validate_indices") {
   # Validate training index sets
-  ei_tr <- .check_idx(extr_idx_train, n_yvar_train, "extr_idx_train")
-  bi_tr <- .check_idx(bg_idx_train,   n_yvar_train, "bg_idx_train")
+  ei_tr <- .check_idx(
+    extr_idx_train,
+    n_yvar_train,
+    caller = caller,
+    label = "extr_idx_train"
+  )
+  bi_tr <- .check_idx(
+    bg_idx_train,
+    n_yvar_train,
+    caller = caller,
+    label = "bg_idx_train"
+  )
   if (length(intersect(ei_tr, bi_tr)))
     stop(sprintf("[%s] extr_idx_train and bg_idx_train overlap.", caller))
 
   # Validate test index sets
-  ei_te <- .check_idx(extr_idx_test, n_yvar_test, "extr_idx_test")
-  bi_te <- .check_idx(bg_idx_test,   n_yvar_test, "bg_idx_test")
+  ei_te <- .check_idx(
+    extr_idx_test,
+    n_yvar_test,
+    caller = caller,
+    label = "extr_idx_test"
+  )
+  bi_te <- .check_idx(
+    bg_idx_test,
+    n_yvar_test,
+    caller = caller,
+    label = "bg_idx_test"
+  )
   if (length(intersect(ei_te, bi_te)))
     stop(sprintf("[%s] extr_idx_test and bg_idx_test overlap.", caller))
 
